@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <FastLED.h>
 #include "config.h"
 
@@ -14,6 +15,7 @@ uint8_t currentEffect = 1;
 void effectTestRouge();
 void effectTestBleu();
 void effectTestVert();
+void effectScintillement();
 
 // --- Callback de Réception & Relais ---
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingRawData, int len) {
@@ -40,11 +42,17 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingRawData, int len) {
 void setup() {
     Serial.begin(115200);
     
-    // Initialisation FastLED (Pin 3 pour tes ESP32-C3)
     FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
-    FastLED.setBrightness(50); // Luminosité réduite pour les tests
+    FastLED.setMaxPowerInVoltsAndMilliamps(5, 500);
 
     WiFi.mode(WIFI_STA);
+    esp_wifi_set_promiscuous(true);
+    esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_promiscuous(false);
+
+    // Réglage de la puissance d'émission - NE PAS SUPPRIMER
+    WiFi.setTxPower((wifi_power_t)(TX_POWER_LEVEL * 4)); 
+
     if (esp_now_init() != ESP_OK) {
         Serial.println("Erreur ESP-NOW");
         return;
@@ -75,7 +83,24 @@ void loop() {
 
 // --- Fonctions de Test ---
 void effectTestRouge() {
-    fill_solid(leds, NUM_LEDS, CRGB::Red);
+    // 1. Fond légèrement scintillant
+    for (int i = 0; i < NUM_LEDS; i++) {
+        // On réduit lentement la luminosité de chaque LED (effet traînée)        
+        // Plus la valeur est petite (ex: 15), plus les leds s'éteignent lentement
+        leds[i].fadeToBlackBy(1); 
+    }
+
+    // 2. Apparition de "scintilles" aléatoires
+    if (random8() < 15) { // Plus ce nombre est élevé plus il y a de leds qui s'allument
+        int pos = random16(NUM_LEDS);        
+        
+        // On choisit une luminosité aléatoire entre 100 et 255
+        uint8_t randomBrightness = random8(0, 170);
+        
+        // CHSV(Teinte, Saturation, Valeur)
+        // Saturation 0 = Blanc pur
+        leds[pos] = CHSV(0, 0, randomBrightness);
+    }    
 }
 
 void effectTestBleu() {
@@ -84,4 +109,25 @@ void effectTestBleu() {
 
 void effectTestVert() {
     fill_solid(leds, NUM_LEDS, CRGB::Green);
+}
+
+void effectScintillement() {
+    // 1. Fond légèrement scintillant
+    for (int i = 0; i < NUM_LEDS; i++) {
+        // On réduit lentement la luminosité de chaque LED (effet traînée)        
+        // Plus la valeur est petite (ex: 15), plus les leds s'éteignent lentement
+        leds[i].fadeToBlackBy(1); 
+    }
+
+    // 2. Apparition de "scintilles" aléatoires
+    if (random8() < 15) { // Plus ce nombre est élevé plus il y a de leds qui s'allument
+        int pos = random16(NUM_LEDS);        
+        
+        // On choisit une luminosité aléatoire entre 100 et 255
+        uint8_t randomBrightness = random8(0, 170);
+        
+        // CHSV(Teinte, Saturation, Valeur)
+        // Saturation 0 = Blanc pur
+        leds[pos] = CHSV(0, 0, randomBrightness);
+    }    
 }
