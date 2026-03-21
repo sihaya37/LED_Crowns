@@ -1,74 +1,87 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include <esp_wifi.h>
 #include <FastLED.h>
 #include "config.h"
 
+// --- Variables Globales ---
 CRGB leds[NUM_LEDS];
-uint32_t lastProcessedId = 0;
-unsigned long lastSignalTime = 0;
+struct_message incomingData;
+uint32_t lastMsgId = 0;
+uint8_t currentEffect = 1;
 
-// Callback de réception
-void OnDataRecv(const uint8_t * mac, const uint8_t *data, int len) {
-    struct_message incoming;
-    memcpy(&incoming, data, sizeof(incoming));
+// --- Prototypes des Effets ---
+void effectTestRouge();
+void effectTestBleu();
+void effectTestVert();
 
-    if (incoming.msgId <= lastProcessedId) return;
-    lastProcessedId = incoming.msgId;
-    lastSignalTime = millis();
+// --- Callback de Réception & Relais ---
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingRawData, int len) {
+    memcpy(&incomingData, incomingRawData, sizeof(incomingData));
 
-    // Déclenchement de la couleur (sera affiché par la loop)
-    if (incoming.hopCount == 0)      fill_solid(leds, NUM_LEDS, CRGB::Blue);
-    else if (incoming.hopCount == 1) fill_solid(leds, NUM_LEDS, CRGB::Green);
-    else                             fill_solid(leds, NUM_LEDS, CRGB::Orange);
+    // 1. Protection contre les doublons
+    if (incomingData.msgId <= lastMsgId) return;
+    lastMsgId = incomingData.msgId;
 
-    // RELAIS IMMÉDIAT (Avant tout traitement lourd)
-    if (incoming.hopCount < 2) { 
-        incoming.hopCount++;
-        // On remet exactement ta logique de puissance validée
-        WiFi.setTxPower((wifi_power_t)(TX_POWER_LEVEL * 4)); 
+    // 2. Mise à jour de l'effet local
+    currentEffect = incomingData.effectMode;
+    Serial.printf("ID: %u | Effet: %d | Saut: %d\n", incomingData.msgId, currentEffect, incomingData.hopCount);
+
+    // 3. Logique de Relais (Perroquet)
+    if (incomingData.hopCount < 2) { 
+        incomingData.hopCount++;
         for(int i = 0; i < MSG_REDUNDANCY_COUNT; i++) {
-            esp_now_send(BROADCAST_ADDR, (uint8_t *) &incoming, sizeof(incoming));
-            // Note : delayMicroseconds est souvent préférable à delay() dans une callback
-            delayMicroseconds(MSG_REDUNDANCY_DELAY * 1000); 
+            esp_now_send(BROADCAST_ADDR, (uint8_t *) &incomingData, sizeof(incomingData));
+            delay(MSG_REDUNDANCY_DELAY);
         }
     }
 }
 
 void setup() {
     Serial.begin(115200);
-
-    // --- SÉCURITÉ ÉLECTRIQUE ---
-    // Limite à 5V et 450mA (préserve ta batterie 1000mAh et tes pistes)
+    
+    // Initialisation FastLED (Pin 3 pour tes ESP32-C3)
     FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
-    FastLED.setMaxPowerInVoltsAndMilliamps(5, 450); 
-    // FastLED.setBrightness(100); // On peut monter le réglage, le limiteur protègera le hardware
+    FastLED.setBrightness(50); // Luminosité réduite pour les tests
 
     WiFi.mode(WIFI_STA);
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
-    esp_wifi_set_promiscuous(false);
-
-    if (esp_now_init() == ESP_OK) {
-        esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("Erreur ESP-NOW");
+        return;
     }
 
-    // Peer nécessaire pour renvoyer le signal (relais)
+    esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+
+    // Enregistrement du peer pour permettre le relais
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, BROADCAST_ADDR, 6);
     peerInfo.channel = WIFI_CHANNEL;
+    peerInfo.encrypt = false;
     esp_now_add_peer(&peerInfo);
+
+    Serial.println("Node prêt et en attente de messages...");
 }
 
 void loop() {
-    // Gestion de la veille (Rouge très faible après 2s de silence)
-    if (millis() - lastSignalTime > 2000) {
-        fill_solid(leds, NUM_LEDS, CRGB(10, 0, 0));
-    } else {
-        // Extinction progressive après le flash
-        fadeToBlackBy(leds, NUM_LEDS, 20);
+    // Application de l'effet selon le mode reçu
+    switch (currentEffect) {
+        case 1: effectTestRouge(); break;
+        case 2: effectTestBleu();  break;
+        case 3: effectTestVert();  break;
+        default: FastLED.clear();  break;
     }
     FastLED.show();
-    delay(30);
+}
+
+// --- Fonctions de Test ---
+void effectTestRouge() {
+    fill_solid(leds, NUM_LEDS, CRGB::Red);
+}
+
+void effectTestBleu() {
+    fill_solid(leds, NUM_LEDS, CRGB::Blue);
+}
+
+void effectTestVert() {
+    fill_solid(leds, NUM_LEDS, CRGB::Green);
 }

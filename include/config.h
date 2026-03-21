@@ -19,8 +19,8 @@ const uint8_t BROADCAST_ADDR[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 // --- STRUCTURE COMMUNE ---
 typedef struct struct_message {
     uint32_t msgId;
-    uint8_t hopCount;
-    int8_t txPower; 
+    uint8_t effectMode; // 1: Scintillement, 2: Dégradé, 3: Battement
+    uint8_t hopCount;   // <--- AJOUT : Compteur de sauts pour le relais
 } struct_message;
 
 #endif
