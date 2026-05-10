@@ -15,6 +15,8 @@ const uint8_t BROADCAST_ADDR[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 // --- TIMING ---
 // Le master envoie toutes les 2000 ms, donc on met un timeout plus long
 const unsigned long SIGNAL_TIMEOUT = 2600;
+const unsigned long MASTER_HEARTBEAT_INTERVAL = 2000;
+const unsigned long EFFECT_CHANGE_INTERVAL = 10000;
 
 // --- HOPS ---
 // 0 = reçu directement du master
@@ -32,10 +34,46 @@ const unsigned long SIGNAL_TIMEOUT = 2600;
 #define LED_POWER_VOLTAGE 5
 #define LED_POWER_MILLIAMPS 400
 
+// --- PROTOCOLE ---
+#define PROTOCOL_VERSION 1
+
+enum EffectId : uint8_t {
+    EFFECT_OFF = 0,
+    EFFECT_DEBUG_HOPS = 1,
+    EFFECT_SOLID = 2,
+    EFFECT_BREATH = 3,
+    EFFECT_CORONATION = 4,
+    EFFECT_SPARKLE = 5,
+    EFFECT_WAVE = 6,
+    EFFECT_AURORA = 7,
+    EFFECT_COMET_TWINS = 8,
+    EFFECT_HEARTBEAT = 9,
+    EFFECT_COLOR_CHASE = 10,
+    EFFECT_THEATER_CHASE = 11,
+    EFFECT_PORTAL = 12,
+    EFFECT_FIREWORKS = 13,
+    EFFECT_GLITTER_RAIN = 14,
+    EFFECT_LARSON_SCANNER = 15,
+    EFFECT_PRISM = 16,
+    EFFECT_RIPPLE = 17,
+    EFFECT_CONSTELLATION = 18,
+    EFFECT_VOGUE_POSE = 19,
+    EFFECT_STORM = 20,
+    EFFECT_QUEEN_AURA = 21
+};
+
 // --- STRUCTURE COMMUNE ---
-typedef struct struct_message {
-    uint32_t msgId;
+typedef struct __attribute__((packed)) struct_message {
+    uint8_t protocolVersion;
+    uint8_t effectId;
     uint8_t hopCount;
+    uint8_t intensity;
+    uint8_t speed;
+    uint16_t flags;
+    uint32_t sessionId;
+    uint32_t msgId;
+    uint32_t primaryColor;
+    uint32_t secondaryColor;
 } struct_message;
 
 #endif

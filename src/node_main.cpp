@@ -2,17 +2,49 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include <FastLED.h>
 #include "config.h"
+#include "effects.h"
 
-CRGB leds[NUM_LEDS];
-
+uint32_t lastSessionId = 0;
 uint32_t lastProcessedId = 0;
-unsigned long lastSignalTime = 0;
+bool hasSession = false;
+unsigned long lastEffectUpdate = 0;
 
-void showColor(const CRGB& color) {
-    fill_solid(leds, NUM_LEDS, color);
-    FastLED.show();
+struct PendingRelay {
+    struct_message message;
+    uint8_t remaining;
+    unsigned long nextSendAt;
+    bool active;
+};
+
+PendingRelay pendingRelay = {};
+
+void scheduleRelay(const struct_message& message) {
+    pendingRelay.message = message;
+    pendingRelay.remaining = MSG_REDUNDANCY_COUNT;
+    pendingRelay.nextSendAt = millis();
+    pendingRelay.active = true;
+}
+
+void processRelayQueue() {
+    if (!pendingRelay.active || pendingRelay.remaining == 0) {
+        pendingRelay.active = false;
+        return;
+    }
+
+    unsigned long now = millis();
+    if ((long)(now - pendingRelay.nextSendAt) < 0) {
+        return;
+    }
+
+    WiFi.setTxPower((wifi_power_t)(TX_POWER_LEVEL * 4));
+    esp_now_send(BROADCAST_ADDR, (uint8_t*)&pendingRelay.message, sizeof(pendingRelay.message));
+    pendingRelay.remaining--;
+    pendingRelay.nextSendAt = now + MSG_REDUNDANCY_DELAY;
+
+    if (pendingRelay.remaining == 0) {
+        pendingRelay.active = false;
+    }
 }
 
 void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
@@ -23,44 +55,33 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     struct_message incoming;
     memcpy(&incoming, data, sizeof(incoming));
 
-    // Filtre anti-doublon
+    if (incoming.protocolVersion != PROTOCOL_VERSION) {
+        return;
+    }
+
+    if (!hasSession || incoming.sessionId != lastSessionId) {
+        hasSession = true;
+        lastSessionId = incoming.sessionId;
+        lastProcessedId = 0;
+    }
+
     if (incoming.msgId <= lastProcessedId) {
         return;
     }
 
     lastProcessedId = incoming.msgId;
-    lastSignalTime = millis();
+    effectsApplyMessage(incoming);
 
-    // Affichage couleur fixe selon le nombre de rebonds déjà effectués
-    if (incoming.hopCount == 0) {
-        showColor(CRGB::Blue);      // direct master
-    } else if (incoming.hopCount == 1) {
-        showColor(CRGB::Green);     // via 1 intermédiaire
-    } else if (incoming.hopCount == 2) {
-        showColor(CRGB::Orange);    // via 2 intermédiaires
-    } else {
-        showColor(CRGB::Purple);    // via 3 intermédiaires ou plus
-    }
-
-    // Relais si on n'a pas atteint la limite
     if (incoming.hopCount < MAX_HOPS) {
         incoming.hopCount++;
-
-        WiFi.setTxPower((wifi_power_t)(TX_POWER_LEVEL * 4));
-
-        for (int i = 0; i < MSG_REDUNDANCY_COUNT; i++) {
-            esp_now_send(BROADCAST_ADDR, (uint8_t*)&incoming, sizeof(incoming));
-            delay(MSG_REDUNDANCY_DELAY);
-        }
+        scheduleRelay(incoming);
     }
 }
 
 void setup() {
     Serial.begin(115200);
 
-    FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
-    FastLED.setMaxPowerInVoltsAndMilliamps(LED_POWER_VOLTAGE, LED_POWER_MILLIAMPS);
-    showColor(CRGB(15, 0, 0)); // rouge au démarrage tant qu'aucun signal n'est reçu
+    effectsInit();
 
     WiFi.mode(WIFI_STA);
     esp_wifi_set_promiscuous(true);
@@ -85,13 +106,16 @@ void setup() {
     esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
 
     WiFi.setTxPower((wifi_power_t)(TX_POWER_LEVEL * 4));
-    Serial.printf("Node prêt. Canal=%d, TX=%d\n", WIFI_CHANNEL, TX_POWER_LEVEL);
+    Serial.printf("Node pret. Canal=%d, TX=%d\n", WIFI_CHANNEL, TX_POWER_LEVEL);
 }
 
 void loop() {
-    if (millis() - lastSignalTime > SIGNAL_TIMEOUT) {
-        showColor(CRGB(15, 0, 0)); // rouge fixe sans signal
-    }
+    unsigned long now = millis();
 
-    delay(20);
+    processRelayQueue();
+
+    if (now - lastEffectUpdate >= 20) {
+        lastEffectUpdate = now;
+        effectsUpdate(now);
+    }
 }
