@@ -14,7 +14,6 @@ MFRC522 rfid(SS_PIN, RST_PIN);
 struct_message myData;
 uint32_t sessionId = 0;
 uint32_t msgCounter = 0;
-uint8_t currentDemoEffect = 0;
 
 struct PendingSend {
     struct_message message;
@@ -25,7 +24,11 @@ struct PendingSend {
 
 PendingSend pendingSend = {};
 
-struct DemoEffect {
+struct CrownActivation {
+    const char* crownName;
+    uint8_t targetMac[6];
+    uint8_t tagUid[10];
+    uint8_t tagLength;
     uint8_t effectId;
     const char* name;
     uint8_t intensity;
@@ -34,37 +37,34 @@ struct DemoEffect {
     uint32_t secondaryColor;
 };
 
-const DemoEffect demoEffects[] = {
-    {EFFECT_SOLID, "SOLID warm gold", 150, 0, 0xFFD060, 0x000000},
-    {EFFECT_BREATH, "BREATH deep red", 180, 18, 0xB00020, 0x000000},
-    {EFFECT_CORONATION, "CORONATION gold rise", 210, 205, 0xFFD060, 0x100300},
-    {EFFECT_SPARKLE, "SPARKLE white gold", 190, 70, 0xFFF2B0, 0x000000},
-    {EFFECT_WAVE, "WAVE queen magenta", 180, 35, 0xFF20A8, 0x080010},
-    {EFFECT_AURORA, "AURORA pink blue violet", 170, 44, 0xFF4FD8, 0x103BFF},
-    {EFFECT_COMET_TWINS, "COMET TWINS magenta cyan", 210, 48, 0xFF1FBF, 0x16D7FF},
-    {EFFECT_HEARTBEAT, "HEARTBEAT hot pink", 210, 46, 0xFF006E, 0x210018},
-    {EFFECT_COLOR_CHASE, "COLOR CHASE royal blue", 190, 92, 0x2274FF, 0x7D1AFF},
-    {EFFECT_THEATER_CHASE, "THEATER CHASE violet", 185, 105, 0xD92CFF, 0x09001F},
-    {EFFECT_PORTAL, "PORTAL blue violet", 205, 92, 0x5F7CFF, 0xD100FF},
-    {EFFECT_FIREWORKS, "FIREWORKS rose gold", 210, 78, 0xFF2FA6, 0xFFD15C},
-    {EFFECT_GLITTER_RAIN, "GLITTER RAIN ice pink", 185, 80, 0xFFD6F6, 0x173CFF},
-    {EFFECT_LARSON_SCANNER, "LARSON SCANNER fuchsia", 220, 55, 0xFF004C, 0x020008},
-    {EFFECT_PRISM, "PRISM saturated rainbow", 170, 32, 0xFF2BD6, 0x1C4DFF},
-    {EFFECT_RIPPLE, "RIPPLE blue pink", 205, 76, 0x1E90FF, 0xFF4FD8},
-    {EFFECT_CONSTELLATION, "CONSTELLATION violet stars", 210, 38, 0xF8E8FF, 0x25004D},
-    {EFFECT_VOGUE_POSE, "VOGUE POSE sharp magenta", 215, 112, 0xFF1FBF, 0x1212A8},
-    {EFFECT_STORM, "STORM electric blue", 220, 86, 0x76E8FF, 0x230060},
-    {EFFECT_QUEEN_AURA, "QUEEN AURA pink violet", 190, 28, 0xFF6AD5, 0x5E2CFF}
+const CrownActivation crownActivations[] = {
+    {"A", {0x3C, 0xDC, 0x75, 0x33, 0x78, 0x74}, {0x04, 0xA8, 0xC7, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_PORTAL, "PORTAL blue violet", 205, 92, 0x5F7CFF, 0xD100FF},
+    {"D", {0x3C, 0xDC, 0x75, 0x32, 0xF6, 0x24}, {0x04, 0x92, 0xC1, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_THEATER_CHASE, "THEATER CHASE violet", 185, 105, 0xD92CFF, 0x09001F},
+    {"E", {0x3C, 0xDC, 0x75, 0x33, 0x64, 0xDC}, {0x04, 0x7E, 0xA3, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_QUEEN_AURA, "QUEEN AURA pink violet", 190, 28, 0xFF6AD5, 0x5E2CFF},
+    {"F", {0x3C, 0xDC, 0x75, 0x33, 0x78, 0x50}, {0x04, 0x7D, 0xA3, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_SPARKLE, "SPARKLE white gold", 190, 70, 0xFFF2B0, 0x000000},
+    {"H", {0xAC, 0xEB, 0xE6, 0x6E, 0x87, 0x94}, {}, 0, EFFECT_WAVE, "WAVE queen magenta", 180, 35, 0xFF20A8, 0x080010},
+    {"I", {0x3C, 0xDC, 0x75, 0x33, 0x35, 0xA0}, {0x04, 0xD2, 0xCD, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_GLITTER_RAIN, "GLITTER RAIN ice pink", 185, 80, 0xFFD6F6, 0x173CFF},
+    {"J", {0x08, 0x92, 0x72, 0x25, 0x47, 0x80}, {}, 0, EFFECT_COMET_TWINS, "COMET TWINS magenta cyan", 210, 48, 0xFF1FBF, 0x16D7FF},
+    {"K", {0x08, 0x92, 0x72, 0x25, 0x49, 0x68}, {0x04, 0x66, 0x9C, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_STORM, "STORM electric blue", 220, 86, 0x76E8FF, 0x230060},
+    {"L", {0x3C, 0xDC, 0x75, 0x33, 0x73, 0x44}, {0x04, 0x26, 0xE8, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_VOGUE_POSE, "VOGUE POSE sharp magenta", 215, 112, 0xFF1FBF, 0x1212A8},
+    {"M", {0x3C, 0xDC, 0x75, 0x31, 0x7E, 0x08}, {0x04, 0xE6, 0xD4, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_RIPPLE, "RIPPLE blue pink", 205, 76, 0x1E90FF, 0xFF4FD8},
+    {"N", {0x08, 0x92, 0x72, 0x25, 0x62, 0x98}, {}, 0, EFFECT_PORTAL, "PORTAL blue violet", 205, 92, 0x5F7CFF, 0xD100FF},
+    {"O", {0x08, 0x92, 0x72, 0x23, 0xCE, 0xA8}, {0x04, 0x5F, 0x96, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_BREATH, "BREATH deep red", 180, 18, 0xB00020, 0x000000},
+    {"Q", {0x08, 0x92, 0x72, 0x23, 0xCF, 0xF8}, {0x04, 0x91, 0xA9, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_WAVE, "WAVE queen magenta", 180, 35, 0xFF20A8, 0x080010},
+    {"R", {0x08, 0x92, 0x72, 0x23, 0xD7, 0xA0}, {0x04, 0x75, 0xBA, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_COLOR_CHASE, "COLOR CHASE royal blue", 190, 92, 0x2274FF, 0x7D1AFF},
+    {"S", {0x3C, 0xDC, 0x75, 0x33, 0x80, 0x08}, {}, 0, EFFECT_PRISM, "PRISM saturated rainbow", 170, 32, 0xFF2BD6, 0x1C4DFF},
+    {"T", {0x08, 0x92, 0x72, 0x25, 0x49, 0x1C}, {0x04, 0x19, 0xE2, 0x73, 0xCE, 0x2A, 0x81}, 7, EFFECT_CONSTELLATION, "CONSTELLATION violet stars", 210, 38, 0xF8E8FF, 0x25004D}
 };
 
-const uint8_t DEMO_EFFECT_COUNT = sizeof(demoEffects) / sizeof(demoEffects[0]);
+const uint8_t CROWN_ACTIVATION_COUNT = sizeof(crownActivations) / sizeof(crownActivations[0]);
 
-const char* effectName(uint8_t index) {
-    if (index >= DEMO_EFFECT_COUNT) {
-        return "UNKNOWN";
-    }
-    return demoEffects[index].name;
-}
+const CrownActivation* activeShowEffect = nullptr;
+const CrownActivation* pendingShowEffect = nullptr;
+unsigned long pendingShowEffectAt = 0;
+
+uint8_t lastUid[10] = {};
+uint8_t lastUidLength = 0;
+unsigned long lastScanAt = 0;
 
 void scheduleBroadcast(const struct_message& message) {
     pendingSend.message = message;
@@ -93,10 +93,11 @@ void processBroadcastQueue() {
     }
 }
 
-void prepareMessage(const DemoEffect& effect) {
+void prepareMessage(const CrownActivation& effect, uint8_t command) {
     msgCounter++;
 
     myData.protocolVersion = PROTOCOL_VERSION;
+    myData.command = command;
     myData.effectId = effect.effectId;
     myData.hopCount = 0;
     myData.intensity = effect.intensity;
@@ -106,6 +107,102 @@ void prepareMessage(const DemoEffect& effect) {
     myData.msgId = msgCounter;
     myData.primaryColor = effect.primaryColor;
     myData.secondaryColor = effect.secondaryColor;
+    memcpy(myData.targetMac, effect.targetMac, sizeof(myData.targetMac));
+}
+
+bool uidEquals(const uint8_t* left, uint8_t leftLength, const uint8_t* right, uint8_t rightLength) {
+    return leftLength == rightLength && memcmp(left, right, leftLength) == 0;
+}
+
+void printUid(const uint8_t* uid, uint8_t length) {
+    for (uint8_t i = 0; i < length; i++) {
+        if (uid[i] < 0x10) {
+            Serial.print('0');
+        }
+        Serial.print(uid[i], HEX);
+        if (i + 1 < length) {
+            Serial.print(':');
+        }
+    }
+}
+
+const CrownActivation* findActivationByUid(const uint8_t* uid, uint8_t length) {
+    for (uint8_t i = 0; i < CROWN_ACTIVATION_COUNT; i++) {
+        const CrownActivation& activation = crownActivations[i];
+        if (activation.tagLength == 0) {
+            continue;
+        }
+        if (uidEquals(uid, length, activation.tagUid, activation.tagLength)) {
+            return &activation;
+        }
+    }
+
+    return nullptr;
+}
+
+bool isRepeatedScan(const uint8_t* uid, uint8_t length, unsigned long now) {
+    return now - lastScanAt < 1500 && uidEquals(uid, length, lastUid, lastUidLength);
+}
+
+void rememberScan(const uint8_t* uid, uint8_t length, unsigned long now) {
+    memcpy(lastUid, uid, length);
+    lastUidLength = length;
+    lastScanAt = now;
+}
+
+void processRfid() {
+    if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+        return;
+    }
+
+    unsigned long now = millis();
+    uint8_t uidLength = rfid.uid.size;
+    uint8_t uid[10] = {};
+    memcpy(uid, rfid.uid.uidByte, uidLength);
+
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
+
+    if (isRepeatedScan(uid, uidLength, now)) {
+        return;
+    }
+    rememberScan(uid, uidLength, now);
+
+    const CrownActivation* activation = findActivationByUid(uid, uidLength);
+    if (activation == nullptr) {
+        Serial.print("Tag inconnu. UID=");
+        printUid(uid, uidLength);
+        Serial.println("  -> ajoute cet UID dans crownActivations[].");
+        return;
+    }
+
+    prepareMessage(*activation, COMMAND_ACTIVATE_CROWN);
+    scheduleBroadcast(myData);
+
+    pendingShowEffect = activation;
+    pendingShowEffectAt = now + CROWN_SYNC_DELAY;
+
+    Serial.printf(
+        "Activation couronne %s: effect=%s id=%u. Sync des couronnes deja actives dans %u ms.\n",
+        activation->crownName,
+        activation->name,
+        activation->effectId,
+        CROWN_SYNC_DELAY);
+}
+
+void processPendingShowEffect() {
+    if (pendingShowEffect == nullptr) {
+        return;
+    }
+
+    unsigned long now = millis();
+    if ((long)(now - pendingShowEffectAt) < 0) {
+        return;
+    }
+
+    activeShowEffect = pendingShowEffect;
+    pendingShowEffect = nullptr;
+    Serial.printf("Heartbeat synchronise sur: %s (%s)\n", activeShowEffect->crownName, activeShowEffect->name);
 }
 
 void setup() {
@@ -138,35 +235,27 @@ void setup() {
     }
 
     WiFi.setTxPower((wifi_power_t)(TX_POWER_LEVEL * 4));
-    Serial.printf("Master pret. Canal=%d, TX=%d, Session=%u\n", WIFI_CHANNEL, TX_POWER_LEVEL, sessionId);
+    Serial.printf("Master RFID pret. Canal=%d, TX=%d, Session=%u\n", WIFI_CHANNEL, TX_POWER_LEVEL, sessionId);
+    Serial.println("Scanne un tag. Si l'UID est inconnu, il sera affiche ici pour l'ajouter au mapping.");
 }
 
 void loop() {
     static unsigned long lastSend = 0;
-    static unsigned long lastEffectChange = 0;
     unsigned long now = millis();
 
     processBroadcastQueue();
+    processRfid();
+    processPendingShowEffect();
 
-    if (now - lastEffectChange >= EFFECT_CHANGE_INTERVAL) {
-        lastEffectChange = now;
-        currentDemoEffect = (currentDemoEffect + 1) % DEMO_EFFECT_COUNT;
-        lastSend = 0;
-        Serial.printf("\n--- Changement effet: %s (%u/%u) ---\n",
-            effectName(currentDemoEffect),
-            currentDemoEffect + 1,
-            DEMO_EFFECT_COUNT);
-    }
-
-    if (lastSend == 0 || now - lastSend >= MASTER_HEARTBEAT_INTERVAL) {
+    if (activeShowEffect != nullptr && (lastSend == 0 || now - lastSend >= MASTER_HEARTBEAT_INTERVAL)) {
         lastSend = now;
 
-        const DemoEffect& effect = demoEffects[currentDemoEffect];
-        prepareMessage(effect);
+        const CrownActivation& effect = *activeShowEffect;
+        prepareMessage(effect, COMMAND_HEARTBEAT);
         scheduleBroadcast(myData);
 
         Serial.printf(
-            "Send msg=%u session=%u effect=%s id=%u intensity=%u speed=%u primary=#%06X secondary=#%06X\n",
+            "Heartbeat msg=%u session=%u effect=%s id=%u intensity=%u speed=%u primary=#%06X secondary=#%06X\n",
             msgCounter,
             sessionId,
             effect.name,

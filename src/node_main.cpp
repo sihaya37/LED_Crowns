@@ -9,6 +9,9 @@ uint32_t lastSessionId = 0;
 uint32_t lastProcessedId = 0;
 bool hasSession = false;
 unsigned long lastEffectUpdate = 0;
+bool crownActivated = false;
+
+uint8_t localMac[6] = {};
 
 struct PendingRelay {
     struct_message message;
@@ -18,6 +21,38 @@ struct PendingRelay {
 };
 
 PendingRelay pendingRelay = {};
+
+struct PendingSync {
+    struct_message message;
+    unsigned long applyAt;
+    bool active;
+};
+
+PendingSync pendingSync = {};
+
+bool isTargetCrown(const struct_message& message) {
+    return memcmp(message.targetMac, localMac, sizeof(localMac)) == 0;
+}
+
+void scheduleEffectSync(const struct_message& message) {
+    pendingSync.message = message;
+    pendingSync.applyAt = millis() + CROWN_SYNC_DELAY;
+    pendingSync.active = true;
+}
+
+void processEffectSync() {
+    if (!pendingSync.active) {
+        return;
+    }
+
+    unsigned long now = millis();
+    if ((long)(now - pendingSync.applyAt) < 0) {
+        return;
+    }
+
+    pendingSync.active = false;
+    effectsApplyMessage(pendingSync.message);
+}
 
 void scheduleRelay(const struct_message& message) {
     pendingRelay.message = message;
@@ -70,7 +105,19 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     }
 
     lastProcessedId = incoming.msgId;
-    effectsApplyMessage(incoming);
+
+    if (incoming.command == COMMAND_ACTIVATE_CROWN) {
+        if (isTargetCrown(incoming)) {
+            crownActivated = true;
+            pendingSync.active = false;
+            effectsSetActive(true);
+            effectsApplyMessage(incoming);
+        } else if (crownActivated) {
+            scheduleEffectSync(incoming);
+        }
+    } else if (crownActivated) {
+        effectsApplyMessage(incoming);
+    }
 
     if (incoming.hopCount < MAX_HOPS) {
         incoming.hopCount++;
@@ -82,8 +129,10 @@ void setup() {
     Serial.begin(115200);
 
     effectsInit();
+    effectsSetActive(false);
 
     WiFi.mode(WIFI_STA);
+    WiFi.macAddress(localMac);
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     esp_wifi_set_promiscuous(false);
@@ -113,6 +162,7 @@ void loop() {
     unsigned long now = millis();
 
     processRelayQueue();
+    processEffectSync();
 
     if (now - lastEffectUpdate >= 20) {
         lastEffectUpdate = now;

@@ -35,7 +35,13 @@ const unsigned long EFFECT_CHANGE_INTERVAL = 10000;
 #define LED_POWER_MILLIAMPS 400
 
 // --- PROTOCOLE ---
-#define PROTOCOL_VERSION 1
+#define PROTOCOL_VERSION 2
+#define CROWN_SYNC_DELAY 1000
+
+enum MessageCommand : uint8_t {
+    COMMAND_HEARTBEAT = 0,
+    COMMAND_ACTIVATE_CROWN = 1
+};
 
 enum EffectId : uint8_t {
     EFFECT_OFF = 0,
@@ -65,6 +71,7 @@ enum EffectId : uint8_t {
 // --- STRUCTURE COMMUNE ---
 typedef struct __attribute__((packed)) struct_message {
     uint8_t protocolVersion;
+    uint8_t command;
     uint8_t effectId;
     uint8_t hopCount;
     uint8_t intensity;
@@ -74,6 +81,7 @@ typedef struct __attribute__((packed)) struct_message {
     uint32_t msgId;
     uint32_t primaryColor;
     uint32_t secondaryColor;
+    uint8_t targetMac[6];
 } struct_message;
 
 #endif

@@ -6,6 +6,8 @@ CRGB leds[NUM_LEDS];
 unsigned long lastSignalTime = 0;
 unsigned long activeEffectStartedAt = 0;
 
+bool crownActive = false;
+bool signalWarning = false;
 uint8_t activeEffectId = EFFECT_DEBUG_HOPS;
 uint8_t activeIntensity = 180;
 uint8_t activeSpeed = 80;
@@ -52,14 +54,27 @@ CRGB scaledSecondary(uint8_t scale = 255) {
 }
 
 void effectsShowNoSignal() {
-    showSolid(CRGB(15, 0, 0), 255);
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    leds[0] = CRGB(15, 0, 0);
     FastLED.show();
 }
 
 void effectsInit() {
     FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
     FastLED.setMaxPowerInVoltsAndMilliamps(LED_POWER_VOLTAGE, LED_POWER_MILLIAMPS);
-    effectsShowNoSignal();
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    FastLED.show();
+}
+
+void effectsSetActive(bool active) {
+    crownActive = active;
+    signalWarning = false;
+    lastSignalTime = millis();
+
+    if (!crownActive) {
+        fill_solid(leds, NUM_LEDS, CRGB::Black);
+        FastLED.show();
+    }
 }
 
 void effectsApplyMessage(const struct_message& message) {
@@ -75,6 +90,7 @@ void effectsApplyMessage(const struct_message& message) {
     activePrimaryColor = message.primaryColor;
     activeSecondaryColor = message.secondaryColor;
     lastSignalTime = millis();
+    signalWarning = false;
 
     if (effectChanged) {
         activeEffectStartedAt = lastSignalTime;
@@ -82,10 +98,13 @@ void effectsApplyMessage(const struct_message& message) {
 }
 
 void effectsUpdate(unsigned long now) {
-    if (now - lastSignalTime > SIGNAL_TIMEOUT) {
-        effectsShowNoSignal();
+    if (!crownActive) {
+        fill_solid(leds, NUM_LEDS, CRGB::Black);
+        FastLED.show();
         return;
     }
+
+    signalWarning = now - lastSignalTime > SIGNAL_TIMEOUT;
 
     switch (activeEffectId) {
         case EFFECT_OFF:
@@ -350,6 +369,10 @@ void effectsUpdate(unsigned long now) {
         default:
             showSolid(colorForHop(activeHopCount), 255);
             break;
+    }
+
+    if (signalWarning) {
+        leds[0] = CRGB(15, 0, 0);
     }
 
     FastLED.show();
