@@ -4,6 +4,7 @@
 #include <esp_wifi.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <ctype.h>
 #include "config.h"
 
 #define RST_PIN 22
@@ -23,6 +24,13 @@ struct PendingSend {
 };
 
 PendingSend pendingSend = {};
+
+struct PendingRemoteCommand {
+    struct_remote_command command;
+    bool active;
+};
+
+PendingRemoteCommand pendingRemoteCommand = {};
 
 struct CrownActivation {
     const char* crownName;
@@ -58,13 +66,27 @@ const CrownActivation crownActivations[] = {
 
 const uint8_t CROWN_ACTIVATION_COUNT = sizeof(crownActivations) / sizeof(crownActivations[0]);
 
-const CrownActivation* activeShowEffect = nullptr;
-const CrownActivation* pendingShowEffect = nullptr;
-unsigned long pendingShowEffectAt = 0;
+struct PendingHeartbeat {
+    struct_message message;
+    const char* label;
+    unsigned long activateAt;
+    bool active;
+};
+
+PendingHeartbeat pendingHeartbeat = {};
+struct_message activeHeartbeatMessage = {};
+bool hasActiveHeartbeat = false;
+const char* activeHeartbeatLabel = "none";
 
 uint8_t lastUid[10] = {};
 uint8_t lastUidLength = 0;
 unsigned long lastScanAt = 0;
+
+uint32_t lastRemoteSessionId = 0;
+uint32_t lastRemoteMsgId = 0;
+bool hasRemoteSession = false;
+
+const char FINAL_EFFECT_NAME[] = "FINAL prism";
 
 void scheduleBroadcast(const struct_message& message) {
     pendingSend.message = message;
@@ -110,6 +132,48 @@ void prepareMessage(const CrownActivation& effect, uint8_t command) {
     memcpy(myData.targetMac, effect.targetMac, sizeof(myData.targetMac));
 }
 
+void prepareGlobalMessage(
+    uint8_t command,
+    uint8_t effectId,
+    uint8_t intensity,
+    uint8_t speed,
+    uint32_t primaryColor,
+    uint32_t secondaryColor
+) {
+    msgCounter++;
+
+    myData.protocolVersion = PROTOCOL_VERSION;
+    myData.command = command;
+    myData.effectId = effectId;
+    myData.hopCount = 0;
+    myData.intensity = intensity;
+    myData.speed = speed;
+    myData.flags = 0;
+    myData.sessionId = sessionId;
+    myData.msgId = msgCounter;
+    myData.primaryColor = primaryColor;
+    myData.secondaryColor = secondaryColor;
+    memset(myData.targetMac, 0, sizeof(myData.targetMac));
+}
+
+void prepareHeartbeatFromTemplate(const struct_message& effectTemplate) {
+    msgCounter++;
+
+    myData = effectTemplate;
+    myData.command = COMMAND_HEARTBEAT;
+    myData.hopCount = 0;
+    myData.sessionId = sessionId;
+    myData.msgId = msgCounter;
+}
+
+void queueHeartbeatTemplate(const struct_message& message, const char* label, unsigned long delayMs) {
+    pendingHeartbeat.message = message;
+    pendingHeartbeat.message.command = COMMAND_HEARTBEAT;
+    pendingHeartbeat.label = label;
+    pendingHeartbeat.activateAt = millis() + delayMs;
+    pendingHeartbeat.active = true;
+}
+
 bool uidEquals(const uint8_t* left, uint8_t leftLength, const uint8_t* right, uint8_t rightLength) {
     return leftLength == rightLength && memcmp(left, right, leftLength) == 0;
 }
@@ -133,6 +197,19 @@ const CrownActivation* findActivationByUid(const uint8_t* uid, uint8_t length) {
             continue;
         }
         if (uidEquals(uid, length, activation.tagUid, activation.tagLength)) {
+            return &activation;
+        }
+    }
+
+    return nullptr;
+}
+
+const CrownActivation* findActivationByCrown(char crownName) {
+    char wanted = toupper((unsigned char)crownName);
+
+    for (uint8_t i = 0; i < CROWN_ACTIVATION_COUNT; i++) {
+        const CrownActivation& activation = crownActivations[i];
+        if (activation.crownName[0] == wanted && activation.tagLength > 0) {
             return &activation;
         }
     }
@@ -178,9 +255,7 @@ void processRfid() {
 
     prepareMessage(*activation, COMMAND_ACTIVATE_CROWN);
     scheduleBroadcast(myData);
-
-    pendingShowEffect = activation;
-    pendingShowEffectAt = now + CROWN_SYNC_DELAY;
+    queueHeartbeatTemplate(myData, activation->name, CROWN_SYNC_DELAY);
 
     Serial.printf(
         "Activation couronne %s: effect=%s id=%u. Sync des couronnes deja actives dans %u ms.\n",
@@ -190,19 +265,115 @@ void processRfid() {
         CROWN_SYNC_DELAY);
 }
 
-void processPendingShowEffect() {
-    if (pendingShowEffect == nullptr) {
+void processPendingHeartbeat() {
+    if (!pendingHeartbeat.active) {
         return;
     }
 
     unsigned long now = millis();
-    if ((long)(now - pendingShowEffectAt) < 0) {
+    if ((long)(now - pendingHeartbeat.activateAt) < 0) {
         return;
     }
 
-    activeShowEffect = pendingShowEffect;
-    pendingShowEffect = nullptr;
-    Serial.printf("Heartbeat synchronise sur: %s (%s)\n", activeShowEffect->crownName, activeShowEffect->name);
+    activeHeartbeatMessage = pendingHeartbeat.message;
+    activeHeartbeatLabel = pendingHeartbeat.label;
+    hasActiveHeartbeat = true;
+    pendingHeartbeat.active = false;
+    Serial.printf("Heartbeat synchronise sur: %s\n", activeHeartbeatLabel);
+}
+
+bool isDuplicateRemoteCommand(const struct_remote_command& command) {
+    if (!hasRemoteSession || command.sessionId != lastRemoteSessionId) {
+        hasRemoteSession = true;
+        lastRemoteSessionId = command.sessionId;
+        lastRemoteMsgId = 0;
+    }
+
+    if (command.msgId <= lastRemoteMsgId) {
+        return true;
+    }
+
+    lastRemoteMsgId = command.msgId;
+    return false;
+}
+
+void activateCrownFromRemote(char crownName) {
+    const CrownActivation* activation = findActivationByCrown(crownName);
+    if (activation == nullptr) {
+        Serial.printf("[REMOTE] Couronne %c inconnue ou sans tag associe.\n", toupper((unsigned char)crownName));
+        return;
+    }
+
+    prepareMessage(*activation, COMMAND_ACTIVATE_CROWN);
+    scheduleBroadcast(myData);
+    queueHeartbeatTemplate(myData, activation->name, CROWN_SYNC_DELAY);
+
+    Serial.printf("[REMOTE] Activation couronne %s -> %s\n", activation->crownName, activation->name);
+}
+
+void processRemoteCommand(const struct_remote_command& command) {
+    if (command.protocolVersion != PROTOCOL_VERSION || isDuplicateRemoteCommand(command)) {
+        return;
+    }
+
+    switch (command.remoteCommand) {
+        case REMOTE_BLACKOUT:
+            prepareGlobalMessage(COMMAND_BLACKOUT, EFFECT_OFF, 0, 0, 0x000000, 0x000000);
+            scheduleBroadcast(myData);
+            hasActiveHeartbeat = false;
+            pendingHeartbeat.active = false;
+            Serial.println("[REMOTE] Blackout general");
+            break;
+
+        case REMOTE_RESET:
+            prepareGlobalMessage(COMMAND_RESET_CROWNS, EFFECT_OFF, 0, 0, 0x000000, 0x000000);
+            scheduleBroadcast(myData);
+            hasActiveHeartbeat = false;
+            pendingHeartbeat.active = false;
+            Serial.println("[REMOTE] Reset couronnes");
+            break;
+
+        case REMOTE_TEST:
+            prepareGlobalMessage(COMMAND_TEST_NETWORK, EFFECT_DEBUG_HOPS, 255, 0, 0x000000, 0x000000);
+            scheduleBroadcast(myData);
+            queueHeartbeatTemplate(myData, "TEST network debug hops", 0);
+            Serial.println("[REMOTE] Test reseau / debug hops");
+            break;
+
+        case REMOTE_FINAL:
+            prepareGlobalMessage(COMMAND_GLOBAL_EFFECT, EFFECT_PRISM, 220, 34, 0xFF2BD6, 0x1C4DFF);
+            scheduleBroadcast(myData);
+            queueHeartbeatTemplate(myData, FINAL_EFFECT_NAME, 0);
+            Serial.println("[REMOTE] Final global -> prism");
+            break;
+
+        case REMOTE_ACTIVATE_CROWN:
+            activateCrownFromRemote(command.targetCrown);
+            break;
+
+        default:
+            Serial.printf("[REMOTE] Commande inconnue: %u\n", command.remoteCommand);
+            break;
+    }
+}
+
+void processPendingRemoteCommand() {
+    if (!pendingRemoteCommand.active) {
+        return;
+    }
+
+    struct_remote_command command = pendingRemoteCommand.command;
+    pendingRemoteCommand.active = false;
+    processRemoteCommand(command);
+}
+
+void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
+    if (len != sizeof(struct_remote_command)) {
+        return;
+    }
+
+    memcpy(&pendingRemoteCommand.command, data, sizeof(pendingRemoteCommand.command));
+    pendingRemoteCommand.active = true;
 }
 
 void setup() {
@@ -234,9 +405,12 @@ void setup() {
         return;
     }
 
+    esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+
     WiFi.setTxPower((wifi_power_t)(TX_POWER_LEVEL * 4));
     Serial.printf("Master RFID pret. Canal=%d, TX=%d, Session=%u\n", WIFI_CHANNEL, TX_POWER_LEVEL, sessionId);
     Serial.println("Scanne un tag. Si l'UID est inconnu, il sera affiche ici pour l'ajouter au mapping.");
+    Serial.println("Canal regie ESP-NOW actif: blackout/test/final/reset/couronne.");
 }
 
 void loop() {
@@ -245,24 +419,24 @@ void loop() {
 
     processBroadcastQueue();
     processRfid();
-    processPendingShowEffect();
+    processPendingRemoteCommand();
+    processPendingHeartbeat();
 
-    if (activeShowEffect != nullptr && (lastSend == 0 || now - lastSend >= MASTER_HEARTBEAT_INTERVAL)) {
+    if (hasActiveHeartbeat && (lastSend == 0 || now - lastSend >= MASTER_HEARTBEAT_INTERVAL)) {
         lastSend = now;
 
-        const CrownActivation& effect = *activeShowEffect;
-        prepareMessage(effect, COMMAND_HEARTBEAT);
+        prepareHeartbeatFromTemplate(activeHeartbeatMessage);
         scheduleBroadcast(myData);
 
         Serial.printf(
             "Heartbeat msg=%u session=%u effect=%s id=%u intensity=%u speed=%u primary=#%06X secondary=#%06X\n",
             msgCounter,
             sessionId,
-            effect.name,
-            effect.effectId,
-            effect.intensity,
-            effect.speed,
-            effect.primaryColor,
-            effect.secondaryColor);
+            activeHeartbeatLabel,
+            activeHeartbeatMessage.effectId,
+            activeHeartbeatMessage.intensity,
+            activeHeartbeatMessage.speed,
+            activeHeartbeatMessage.primaryColor,
+            activeHeartbeatMessage.secondaryColor);
     }
 }

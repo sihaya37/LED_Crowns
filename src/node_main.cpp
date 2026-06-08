@@ -106,17 +106,39 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
 
     lastProcessedId = incoming.msgId;
 
-    if (incoming.command == COMMAND_ACTIVATE_CROWN) {
-        if (isTargetCrown(incoming)) {
+    switch (incoming.command) {
+        case COMMAND_ACTIVATE_CROWN:
+            if (isTargetCrown(incoming)) {
+                crownActivated = true;
+                pendingSync.active = false;
+                effectsSetActive(true);
+                effectsApplyMessage(incoming);
+            } else if (crownActivated) {
+                scheduleEffectSync(incoming);
+            }
+            break;
+
+        case COMMAND_GLOBAL_EFFECT:
+        case COMMAND_TEST_NETWORK:
             crownActivated = true;
             pendingSync.active = false;
             effectsSetActive(true);
             effectsApplyMessage(incoming);
-        } else if (crownActivated) {
-            scheduleEffectSync(incoming);
-        }
-    } else if (crownActivated) {
-        effectsApplyMessage(incoming);
+            break;
+
+        case COMMAND_BLACKOUT:
+        case COMMAND_RESET_CROWNS:
+            crownActivated = false;
+            pendingSync.active = false;
+            effectsSetActive(false);
+            break;
+
+        case COMMAND_HEARTBEAT:
+        default:
+            if (crownActivated) {
+                effectsApplyMessage(incoming);
+            }
+            break;
     }
 
     if (incoming.hopCount < MAX_HOPS) {

@@ -30,6 +30,16 @@ lumineux se synchronisent pour representer la sororite entre les Queens.
 - Lecteur RFID MFRC522 branche sur le master.
 - Tags RFID autocollants associes aux couronnes.
 
+### Remote regie
+
+- ESP32-C3 Super Mini.
+- Branche en USB-C a un telephone Android.
+- Utilise avec l'application "Serial USB Terminal".
+- Recoit des commandes texte via Serial USB.
+- Envoie ces commandes au master WROOM en ESP-NOW.
+- Sert de canal de secours : le master reste autonome avec le RFID si aucune
+  commande regie n'est recue.
+
 ### Couronnes
 
 Chaque couronne contient :
@@ -52,6 +62,7 @@ Il y a deux environnements PlatformIO :
 
 - `crown_c3` : firmware des couronnes ESP32-C3.
 - `master_wroom` : firmware du master ESP32-WROOM-32.
+- `remote_c3` : firmware du C3 branche au telephone Android pour la regie.
 
 Fichiers principaux :
 
@@ -61,6 +72,7 @@ Fichiers principaux :
 - `src/master_main.cpp` : master RFID, mapping `tag -> couronne -> effet`, logs Serial.
 - `src/node_main.cpp` : reception ESP-NOW, anti-doublon, activation ciblee,
   synchronisation differee et relais non bloquant.
+- `src/remote_main.cpp` : telecommande regie Serial USB vers ESP-NOW.
 - `include/effects.h` / `src/effects.cpp` : moteur FastLED et bibliotheque
   d'effets.
 - `src/mac_addresses.txt` : adresses MAC connues des couronnes et du master.
@@ -130,6 +142,41 @@ courant toutes les 2 secondes pour maintenir l'etat radio.
 Si une couronne activee perd le signal, elle continue a jouer le dernier effet
 connu. Seule la premiere LED passe en rouge fixe tant que le signal n'est pas
 retabli. Une couronne jamais activee reste eteinte, meme sans signal.
+
+## Canal regie Android / C3 remote
+
+Un ESP32-C3 Super Mini peut etre branche en USB-C a un telephone Android avec
+l'application "Serial USB Terminal". Il lit des commandes texte, puis les envoie
+au master WROOM par ESP-NOW.
+
+Le WROOM reste le master scenique principal :
+
+- si aucune commande regie n'est recue, le RFID fonctionne comme avant ;
+- si une commande regie arrive, le WROOM la traduit en commande ESP-NOW pour
+  les couronnes ;
+- les logs Serial du WROOM restent lisibles pour les tests ;
+- le C3 remote affiche aussi ce qu'il envoie dans le terminal du telephone.
+
+Commandes serie cote telephone :
+
+| Commande | Action |
+| --- | --- |
+| `b` ou `blackout` | blackout general, couronnes eteintes et desactivees |
+| `r` ou `reset` | reset couronnes, retour eteint |
+| `t` ou `test` | test reseau avec `EFFECT_DEBUG_HOPS` |
+| `f` ou `final` | effet final global `EFFECT_PRISM` |
+| `cA`, `cD`, `cO`, etc. | activation manuelle d'une couronne |
+| `h` ou `help` | aide dans le terminal |
+
+L'effet final utilise actuellement `EFFECT_PRISM`, volontairement non associe a
+une couronne dans le mapping RFID.
+
+Pour que blackout, reset, test et final aient le comportement complet, flasher
+les trois firmwares compatibles :
+
+- `master_wroom`
+- `remote_c3`
+- `crown_c3`
 
 ## Association tag / couronne / effet
 
@@ -273,6 +320,12 @@ Compiler seulement le master :
 
 ```powershell
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e master_wroom
+```
+
+Compiler seulement la remote regie :
+
+```powershell
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e remote_c3
 ```
 
 ## Prochaines etapes probables

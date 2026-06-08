@@ -40,7 +40,20 @@ const unsigned long EFFECT_CHANGE_INTERVAL = 10000;
 
 enum MessageCommand : uint8_t {
     COMMAND_HEARTBEAT = 0,
-    COMMAND_ACTIVATE_CROWN = 1
+    COMMAND_ACTIVATE_CROWN = 1,
+    COMMAND_GLOBAL_EFFECT = 2,
+    COMMAND_BLACKOUT = 3,
+    COMMAND_RESET_CROWNS = 4,
+    COMMAND_TEST_NETWORK = 5
+};
+
+enum RemoteCommandId : uint8_t {
+    REMOTE_NONE = 0,
+    REMOTE_BLACKOUT = 1,
+    REMOTE_RESET = 2,
+    REMOTE_TEST = 3,
+    REMOTE_FINAL = 4,
+    REMOTE_ACTIVATE_CROWN = 5
 };
 
 enum EffectId : uint8_t {
@@ -83,5 +96,14 @@ typedef struct __attribute__((packed)) struct_message {
     uint32_t secondaryColor;
     uint8_t targetMac[6];
 } struct_message;
+
+typedef struct __attribute__((packed)) struct_remote_command {
+    uint8_t protocolVersion;
+    uint8_t remoteCommand;
+    char targetCrown;
+    uint8_t reserved;
+    uint32_t sessionId;
+    uint32_t msgId;
+} struct_remote_command;
 
 #endif
