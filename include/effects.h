@@ -6,6 +6,9 @@
 
 void effectsInit();
 void effectsSetActive(bool active);
+void effectsStartActivation(const struct_message& message);
+void effectsStartGroupStrobe();
+void effectsStartSync(const struct_message& message);
 void effectsApplyMessage(const struct_message& message);
 void effectsUpdate(unsigned long now);
 void effectsShowNoSignal();

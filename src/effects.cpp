@@ -8,12 +8,23 @@ unsigned long activeEffectStartedAt = 0;
 
 bool crownActive = false;
 bool signalWarning = false;
+bool activationSequenceActive = false;
+bool syncSequenceActive = false;
+bool groupStrobeSequenceActive = false;
+bool effectFadeInActive = false;
+bool darkHoldActive = false;
 uint8_t activeEffectId = EFFECT_DEBUG_HOPS;
 uint8_t activeIntensity = 180;
+uint8_t targetIntensity = 180;
 uint8_t activeSpeed = 80;
 uint8_t activeHopCount = 0;
 uint32_t activePrimaryColor = 0xFFFFFF;
 uint32_t activeSecondaryColor = 0x000000;
+struct_message queuedActivationMessage = {};
+struct_message queuedSyncMessage = {};
+unsigned long syncSequenceStartedAt = 0;
+unsigned long groupStrobeStartedAt = 0;
+unsigned long effectFadeInStartedAt = 0;
 
 CRGB colorFromHex(uint32_t color) {
     return CRGB((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
@@ -69,6 +80,11 @@ void effectsInit() {
 void effectsSetActive(bool active) {
     crownActive = active;
     signalWarning = false;
+    activationSequenceActive = false;
+    syncSequenceActive = false;
+    groupStrobeSequenceActive = false;
+    effectFadeInActive = false;
+    darkHoldActive = false;
     lastSignalTime = millis();
 
     if (!crownActive) {
@@ -77,13 +93,14 @@ void effectsSetActive(bool active) {
     }
 }
 
-void effectsApplyMessage(const struct_message& message) {
+void applyEffectMessage(const struct_message& message) {
     bool effectChanged =
         activeEffectId != message.effectId ||
         activePrimaryColor != message.primaryColor ||
         activeSecondaryColor != message.secondaryColor;
 
     activeEffectId = message.effectId;
+    targetIntensity = message.intensity;
     activeIntensity = message.intensity;
     activeSpeed = message.speed;
     activeHopCount = message.hopCount;
@@ -97,6 +114,127 @@ void effectsApplyMessage(const struct_message& message) {
     }
 }
 
+void startEffectFadeIn(const struct_message& message) {
+    applyEffectMessage(message);
+    targetIntensity = message.intensity;
+    activeIntensity = 0;
+    effectFadeInActive = true;
+    darkHoldActive = false;
+    effectFadeInStartedAt = millis();
+}
+
+void effectsStartActivation(const struct_message& message) {
+    crownActive = true;
+    signalWarning = false;
+    activationSequenceActive = true;
+    syncSequenceActive = false;
+    groupStrobeSequenceActive = false;
+    effectFadeInActive = false;
+    darkHoldActive = false;
+    queuedActivationMessage = message;
+    lastSignalTime = millis();
+    activeEffectStartedAt = lastSignalTime;
+}
+
+void effectsStartGroupStrobe() {
+    if (!crownActive) {
+        return;
+    }
+
+    signalWarning = false;
+    groupStrobeSequenceActive = true;
+    darkHoldActive = false;
+    lastSignalTime = millis();
+    groupStrobeStartedAt = lastSignalTime;
+}
+
+void effectsStartSync(const struct_message& message) {
+    crownActive = true;
+    signalWarning = false;
+    activationSequenceActive = false;
+    syncSequenceActive = true;
+    groupStrobeSequenceActive = false;
+    effectFadeInActive = false;
+    darkHoldActive = false;
+    queuedSyncMessage = message;
+    lastSignalTime = millis();
+    syncSequenceStartedAt = lastSignalTime;
+}
+
+void effectsApplyMessage(const struct_message& message) {
+    if ((activationSequenceActive || syncSequenceActive || groupStrobeSequenceActive || effectFadeInActive || darkHoldActive) && message.command == COMMAND_HEARTBEAT) {
+        lastSignalTime = millis();
+        signalWarning = false;
+        return;
+    }
+
+    activationSequenceActive = false;
+    groupStrobeSequenceActive = false;
+    syncSequenceActive = false;
+    effectFadeInActive = false;
+    darkHoldActive = false;
+    applyEffectMessage(message);
+}
+
+void showTripleWhiteStrobe(unsigned long elapsed) {
+    unsigned long phase = elapsed % 140;
+    bool flashOn = phase < 45 && elapsed < 420;
+    fill_solid(leds, NUM_LEDS, flashOn ? CRGB::White : CRGB::Black);
+}
+
+void showActivationSequence(unsigned long elapsed) {
+    if (elapsed >= ACTIVATION_SPARKLE_DURATION) {
+        showTripleWhiteStrobe(elapsed - ACTIVATION_SPARKLE_DURATION);
+        return;
+    }
+
+    uint8_t progress = map(elapsed, 0, ACTIVATION_SPARKLE_DURATION - 1, 0, 255);
+    uint8_t eased = ease8InOutQuad(progress);
+    uint8_t sparkleChance = map(eased, 0, 255, 18, 235);
+    uint8_t burstCount = map(eased, 0, 255, 1, 7);
+    CRGB violet = CRGB(130, 35, 255);
+    CRGB darkBlue = CRGB(10, 20, 140);
+    CRGB lightBlue = CRGB(80, 190, 255);
+    CRGB sparkleColor;
+
+    if (progress < 86) {
+        sparkleColor = blend(violet, darkBlue, progress * 3);
+    } else if (progress < 172) {
+        sparkleColor = blend(darkBlue, lightBlue, (progress - 86) * 3);
+    } else {
+        sparkleColor = blend(lightBlue, CRGB::White, (progress - 172) * 3);
+    }
+
+    fadeToBlackBy(leds, NUM_LEDS, 95);
+
+    if (random8() < sparkleChance) {
+        uint8_t flashes = random8(1, burstCount + 1);
+        for (uint8_t i = 0; i < flashes; i++) {
+            CRGB spark = sparkleColor;
+            if (eased > 185 && random8() < 80) {
+                spark = CRGB::White;
+            }
+            leds[random8(NUM_LEDS)] += spark;
+        }
+    }
+}
+
+void updateFadeIn(unsigned long now) {
+    if (!effectFadeInActive) {
+        return;
+    }
+
+    unsigned long elapsed = now - effectFadeInStartedAt;
+    if (elapsed >= EFFECT_FADE_IN_DURATION) {
+        activeIntensity = targetIntensity;
+        effectFadeInActive = false;
+        return;
+    }
+
+    uint8_t progress = map(elapsed, 0, EFFECT_FADE_IN_DURATION - 1, 0, 255);
+    activeIntensity = scale8(targetIntensity, ease8InOutQuad(progress));
+}
+
 void effectsUpdate(unsigned long now) {
     if (!crownActive) {
         fill_solid(leds, NUM_LEDS, CRGB::Black);
@@ -105,6 +243,62 @@ void effectsUpdate(unsigned long now) {
     }
 
     signalWarning = now - lastSignalTime > SIGNAL_TIMEOUT;
+
+    if (activationSequenceActive) {
+        unsigned long elapsed = now - activeEffectStartedAt;
+        if (elapsed >= ACTIVATION_SEQUENCE_DURATION) {
+            activationSequenceActive = false;
+            startEffectFadeIn(queuedActivationMessage);
+        } else {
+            showActivationSequence(elapsed);
+            if (signalWarning) {
+                leds[0] = CRGB(15, 0, 0);
+            }
+            FastLED.show();
+            return;
+        }
+    }
+
+    if (groupStrobeSequenceActive) {
+        unsigned long elapsed = now - groupStrobeStartedAt;
+        if (elapsed >= ACTIVATION_STROBE_DURATION) {
+            groupStrobeSequenceActive = false;
+            darkHoldActive = true;
+        } else {
+            showTripleWhiteStrobe(elapsed);
+            if (signalWarning) {
+                leds[0] = CRGB(15, 0, 0);
+            }
+            FastLED.show();
+            return;
+        }
+    }
+
+    if (syncSequenceActive) {
+        unsigned long elapsed = now - syncSequenceStartedAt;
+        if (elapsed >= SYNC_STROBE_DURATION) {
+            syncSequenceActive = false;
+            startEffectFadeIn(queuedSyncMessage);
+        } else {
+            showTripleWhiteStrobe(elapsed);
+            if (signalWarning) {
+                leds[0] = CRGB(15, 0, 0);
+            }
+            FastLED.show();
+            return;
+        }
+    }
+
+    if (darkHoldActive) {
+        fill_solid(leds, NUM_LEDS, CRGB::Black);
+        if (signalWarning) {
+            leds[0] = CRGB(15, 0, 0);
+        }
+        FastLED.show();
+        return;
+    }
+
+    updateFadeIn(now);
 
     switch (activeEffectId) {
         case EFFECT_OFF:

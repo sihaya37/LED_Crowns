@@ -30,14 +30,40 @@ struct PendingSync {
 
 PendingSync pendingSync = {};
 
+struct PendingStrobe {
+    unsigned long applyAt;
+    bool active;
+};
+
+PendingStrobe pendingStrobe = {};
+
 bool isTargetCrown(const struct_message& message) {
     return memcmp(message.targetMac, localMac, sizeof(localMac)) == 0;
+}
+
+void scheduleGroupStrobe() {
+    pendingStrobe.applyAt = millis() + ACTIVATION_SPARKLE_DURATION;
+    pendingStrobe.active = true;
 }
 
 void scheduleEffectSync(const struct_message& message) {
     pendingSync.message = message;
     pendingSync.applyAt = millis() + CROWN_SYNC_DELAY;
     pendingSync.active = true;
+}
+
+void processGroupStrobe() {
+    if (!pendingStrobe.active) {
+        return;
+    }
+
+    unsigned long now = millis();
+    if ((long)(now - pendingStrobe.applyAt) < 0) {
+        return;
+    }
+
+    pendingStrobe.active = false;
+    effectsStartGroupStrobe();
 }
 
 void processEffectSync() {
@@ -51,7 +77,7 @@ void processEffectSync() {
     }
 
     pendingSync.active = false;
-    effectsApplyMessage(pendingSync.message);
+    effectsStartSync(pendingSync.message);
 }
 
 void scheduleRelay(const struct_message& message) {
@@ -111,9 +137,11 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
             if (isTargetCrown(incoming)) {
                 crownActivated = true;
                 pendingSync.active = false;
+                pendingStrobe.active = false;
                 effectsSetActive(true);
-                effectsApplyMessage(incoming);
+                effectsStartActivation(incoming);
             } else if (crownActivated) {
+                scheduleGroupStrobe();
                 scheduleEffectSync(incoming);
             }
             break;
@@ -122,6 +150,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
         case COMMAND_TEST_NETWORK:
             crownActivated = true;
             pendingSync.active = false;
+            pendingStrobe.active = false;
             effectsSetActive(true);
             effectsApplyMessage(incoming);
             break;
@@ -130,6 +159,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
         case COMMAND_RESET_CROWNS:
             crownActivated = false;
             pendingSync.active = false;
+            pendingStrobe.active = false;
             effectsSetActive(false);
             break;
 
@@ -184,6 +214,7 @@ void loop() {
     unsigned long now = millis();
 
     processRelayQueue();
+    processGroupStrobe();
     processEffectSync();
 
     if (now - lastEffectUpdate >= 20) {

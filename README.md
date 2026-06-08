@@ -127,14 +127,39 @@ Yara couronne les Queens en scannant le tag NFC associe a chaque couronne :
 1. le master reconnait le tag ;
 2. il envoie une commande `COMMAND_ACTIVATE_CROWN` en broadcast, avec l'adresse
    MAC de la couronne cible ;
-3. seule la couronne cible s'active immediatement et joue son effet associe ;
-4. les couronnes deja activees attendent `CROWN_SYNC_DELAY` puis se
+3. seule la couronne cible s'active immediatement et joue une sequence de
+   couronnement techno/electro ;
+4. a la fin de cette sequence, la couronne cible joue son effet associe ;
+5. les couronnes deja activees attendent `CROWN_SYNC_DELAY` puis se
    synchronisent sur l'effet de la couronne qui vient d'etre activee ;
-5. les couronnes pas encore activees restent eteintes.
+6. les couronnes pas encore activees restent eteintes.
 
-La synchronisation differee est actuellement fixee a :
+La synchronisation differee est actuellement construite avec ces timings :
 
-- `CROWN_SYNC_DELAY = 1000`
+- `ACTIVATION_SPARKLE_DURATION = 5000`
+- `ACTIVATION_STROBE_DURATION = 420`
+- `GROUP_SYNC_WAIT_AFTER_ACTIVATION = 2000`
+- `SYNC_STROBE_DURATION = 420`
+- `CROWN_SYNC_DELAY = ACTIVATION_SEQUENCE_DURATION + GROUP_SYNC_WAIT_AFTER_ACTIVATION`
+
+Choregraphie actuelle d'un couronnement :
+
+1. la nouvelle couronne joue un sparkle sur fond noir pendant 5 secondes ;
+2. les LEDs s'allument aleatoirement et brievement, comme des flashs photo ;
+3. la couleur progresse violet -> bleu fonce -> bleu clair -> blanc ;
+4. la frequence des flashs et le nombre de LEDs pouvant flasher augmentent ;
+5. la nouvelle couronne et les couronnes deja actives font 3 flashs blancs
+   rapides en meme temps ;
+6. les couronnes deja actives s'eteignent ;
+7. la nouvelle couronne prend son effet avec une montee de luminosite sur 2
+   secondes ;
+8. au bout de ces 2 secondes, les couronnes deja actives refont 3 flashs blancs ;
+9. elles prennent ensuite le nouvel effet avec la meme montee de luminosite sur
+   2 secondes.
+
+Pendant les sequences d'activation et de strobe, les heartbeats d'effet sont
+ignores par les couronnes concernees pour eviter les glitches visuels. Les
+commandes de blackout et reset restent prioritaires.
 
 Apres chaque activation, le master continue d'envoyer un heartbeat avec l'effet
 courant toutes les 2 secondes pour maintenir l'etat radio.
