@@ -8,11 +8,14 @@ unsigned long activeEffectStartedAt = 0;
 
 bool crownActive = false;
 bool signalWarning = false;
+bool signalWarningEnabled = true;
 bool activationSequenceActive = false;
 bool syncSequenceActive = false;
 bool groupStrobeSequenceActive = false;
 bool effectFadeInActive = false;
 bool darkHoldActive = false;
+bool powerCheckActive = false;
+bool blackoutOverrideActive = false;
 uint8_t activeEffectId = EFFECT_DEBUG_HOPS;
 uint8_t activeIntensity = 180;
 uint8_t targetIntensity = 180;
@@ -25,6 +28,7 @@ struct_message queuedSyncMessage = {};
 unsigned long syncSequenceStartedAt = 0;
 unsigned long groupStrobeStartedAt = 0;
 unsigned long effectFadeInStartedAt = 0;
+unsigned long powerCheckStartedAt = 0;
 
 CRGB colorFromHex(uint32_t color) {
     return CRGB((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
@@ -85,9 +89,43 @@ void effectsSetActive(bool active) {
     groupStrobeSequenceActive = false;
     effectFadeInActive = false;
     darkHoldActive = false;
+    powerCheckActive = false;
     lastSignalTime = millis();
 
     if (!crownActive) {
+        fill_solid(leds, NUM_LEDS, CRGB::Black);
+        FastLED.show();
+    }
+}
+
+void effectsSetSignalWarningEnabled(bool enabled) {
+    signalWarningEnabled = enabled;
+    if (!signalWarningEnabled) {
+        signalWarning = false;
+    }
+}
+
+void effectsStartPowerCheck() {
+    crownActive = false;
+    signalWarning = false;
+    activationSequenceActive = false;
+    syncSequenceActive = false;
+    groupStrobeSequenceActive = false;
+    effectFadeInActive = false;
+    darkHoldActive = false;
+    powerCheckActive = true;
+    blackoutOverrideActive = false;
+    powerCheckStartedAt = millis();
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    leds[0] = CRGB::Green;
+    FastLED.show();
+}
+
+void effectsSetBlackout(bool active) {
+    blackoutOverrideActive = active;
+    lastSignalTime = millis();
+
+    if (blackoutOverrideActive) {
         fill_solid(leds, NUM_LEDS, CRGB::Black);
         FastLED.show();
     }
@@ -108,6 +146,7 @@ void applyEffectMessage(const struct_message& message) {
     activeSecondaryColor = message.secondaryColor;
     lastSignalTime = millis();
     signalWarning = false;
+    blackoutOverrideActive = false;
 
     if (effectChanged) {
         activeEffectStartedAt = lastSignalTime;
@@ -131,6 +170,8 @@ void effectsStartActivation(const struct_message& message) {
     groupStrobeSequenceActive = false;
     effectFadeInActive = false;
     darkHoldActive = false;
+    powerCheckActive = false;
+    blackoutOverrideActive = false;
     queuedActivationMessage = message;
     lastSignalTime = millis();
     activeEffectStartedAt = lastSignalTime;
@@ -144,6 +185,7 @@ void effectsStartGroupStrobe() {
     signalWarning = false;
     groupStrobeSequenceActive = true;
     darkHoldActive = false;
+    powerCheckActive = false;
     lastSignalTime = millis();
     groupStrobeStartedAt = lastSignalTime;
 }
@@ -156,6 +198,8 @@ void effectsStartSync(const struct_message& message) {
     groupStrobeSequenceActive = false;
     effectFadeInActive = false;
     darkHoldActive = false;
+    powerCheckActive = false;
+    blackoutOverrideActive = false;
     queuedSyncMessage = message;
     lastSignalTime = millis();
     syncSequenceStartedAt = lastSignalTime;
@@ -173,6 +217,7 @@ void effectsApplyMessage(const struct_message& message) {
     syncSequenceActive = false;
     effectFadeInActive = false;
     darkHoldActive = false;
+    powerCheckActive = false;
     applyEffectMessage(message);
 }
 
@@ -236,13 +281,31 @@ void updateFadeIn(unsigned long now) {
 }
 
 void effectsUpdate(unsigned long now) {
+    if (blackoutOverrideActive) {
+        fill_solid(leds, NUM_LEDS, CRGB::Black);
+        FastLED.show();
+        return;
+    }
+
+    if (powerCheckActive) {
+        if (now - powerCheckStartedAt >= POWER_CHECK_DURATION) {
+            powerCheckActive = false;
+            fill_solid(leds, NUM_LEDS, CRGB::Black);
+        } else {
+            fill_solid(leds, NUM_LEDS, CRGB::Black);
+            leds[0] = CRGB::Green;
+        }
+        FastLED.show();
+        return;
+    }
+
     if (!crownActive) {
         fill_solid(leds, NUM_LEDS, CRGB::Black);
         FastLED.show();
         return;
     }
 
-    signalWarning = now - lastSignalTime > SIGNAL_TIMEOUT;
+    signalWarning = signalWarningEnabled && now - lastSignalTime > SIGNAL_TIMEOUT;
 
     if (activationSequenceActive) {
         unsigned long elapsed = now - activeEffectStartedAt;

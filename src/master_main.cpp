@@ -77,6 +77,10 @@ PendingHeartbeat pendingHeartbeat = {};
 struct_message activeHeartbeatMessage = {};
 bool hasActiveHeartbeat = false;
 const char* activeHeartbeatLabel = "none";
+struct_message savedBlackoutHeartbeatMessage = {};
+bool savedBlackoutHasHeartbeat = false;
+const char* savedBlackoutHeartbeatLabel = "none";
+bool blackoutActive = false;
 
 uint8_t lastUid[10] = {};
 uint8_t lastUidLength = 0;
@@ -256,6 +260,7 @@ void processRfid() {
     prepareMessage(*activation, COMMAND_ACTIVATE_CROWN);
     scheduleBroadcast(myData);
     queueHeartbeatTemplate(myData, activation->name, CROWN_SYNC_DELAY);
+    blackoutActive = false;
 
     Serial.printf(
         "Activation couronne %s: effect=%s id=%u. Sync des couronnes deja actives dans %u ms.\n",
@@ -307,6 +312,7 @@ void activateCrownFromRemote(char crownName) {
     prepareMessage(*activation, COMMAND_ACTIVATE_CROWN);
     scheduleBroadcast(myData);
     queueHeartbeatTemplate(myData, activation->name, CROWN_SYNC_DELAY);
+    blackoutActive = false;
 
     Serial.printf("[REMOTE] Activation couronne %s -> %s\n", activation->crownName, activation->name);
 }
@@ -318,11 +324,25 @@ void processRemoteCommand(const struct_remote_command& command) {
 
     switch (command.remoteCommand) {
         case REMOTE_BLACKOUT:
-            prepareGlobalMessage(COMMAND_BLACKOUT, EFFECT_OFF, 0, 0, 0x000000, 0x000000);
-            scheduleBroadcast(myData);
-            hasActiveHeartbeat = false;
-            pendingHeartbeat.active = false;
-            Serial.println("[REMOTE] Blackout general");
+            if (blackoutActive) {
+                prepareGlobalMessage(COMMAND_RESTORE_FROM_BLACKOUT, EFFECT_OFF, 0, 0, 0x000000, 0x000000);
+                scheduleBroadcast(myData);
+                hasActiveHeartbeat = savedBlackoutHasHeartbeat;
+                activeHeartbeatMessage = savedBlackoutHeartbeatMessage;
+                activeHeartbeatLabel = savedBlackoutHeartbeatLabel;
+                blackoutActive = false;
+                Serial.println("[REMOTE] Restore apres blackout");
+            } else {
+                savedBlackoutHasHeartbeat = hasActiveHeartbeat;
+                savedBlackoutHeartbeatMessage = activeHeartbeatMessage;
+                savedBlackoutHeartbeatLabel = activeHeartbeatLabel;
+                prepareGlobalMessage(COMMAND_BLACKOUT, EFFECT_OFF, 0, 0, 0x000000, 0x000000);
+                scheduleBroadcast(myData);
+                hasActiveHeartbeat = false;
+                pendingHeartbeat.active = false;
+                blackoutActive = true;
+                Serial.println("[REMOTE] Blackout general");
+            }
             break;
 
         case REMOTE_RESET:
@@ -330,6 +350,7 @@ void processRemoteCommand(const struct_remote_command& command) {
             scheduleBroadcast(myData);
             hasActiveHeartbeat = false;
             pendingHeartbeat.active = false;
+            blackoutActive = false;
             Serial.println("[REMOTE] Reset couronnes");
             break;
 
@@ -337,6 +358,7 @@ void processRemoteCommand(const struct_remote_command& command) {
             prepareGlobalMessage(COMMAND_TEST_NETWORK, EFFECT_DEBUG_HOPS, 255, 0, 0x000000, 0x000000);
             scheduleBroadcast(myData);
             queueHeartbeatTemplate(myData, "TEST network debug hops", 0);
+            blackoutActive = false;
             Serial.println("[REMOTE] Test reseau / debug hops");
             break;
 
@@ -344,6 +366,7 @@ void processRemoteCommand(const struct_remote_command& command) {
             prepareGlobalMessage(COMMAND_GLOBAL_EFFECT, EFFECT_PRISM, 220, 34, 0xFF2BD6, 0x1C4DFF);
             scheduleBroadcast(myData);
             queueHeartbeatTemplate(myData, FINAL_EFFECT_NAME, 0);
+            blackoutActive = false;
             Serial.println("[REMOTE] Final global -> prism");
             break;
 
@@ -422,7 +445,7 @@ void loop() {
     processPendingRemoteCommand();
     processPendingHeartbeat();
 
-    if (hasActiveHeartbeat && (lastSend == 0 || now - lastSend >= MASTER_HEARTBEAT_INTERVAL)) {
+    if (!pendingSend.active && hasActiveHeartbeat && (lastSend == 0 || now - lastSend >= MASTER_HEARTBEAT_INTERVAL)) {
         lastSend = now;
 
         prepareHeartbeatFromTemplate(activeHeartbeatMessage);

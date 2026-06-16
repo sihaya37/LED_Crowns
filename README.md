@@ -40,6 +40,26 @@ lumineux se synchronisent pour representer la sororite entre les Queens.
 - Sert de canal de secours : le master reste autonome avec le RFID si aucune
   commande regie n'est recue.
 
+### Tenue prototype de Yara
+
+- ESP32-C3 Super Mini.
+- Powerbank.
+- Ruban COB LED WS2812B 5 mm, 5 m, 100 LEDs/m, soit 500 LEDs.
+- Firmware dedie `yara_costume_c3`.
+
+Le prototype est autonome pour l'instant et ne recoit pas encore d'ordres
+ESP-NOW. Son adresse MAC n'est donc pas necessaire a ce stade. Le firmware
+l'affiche quand meme au demarrage dans le moniteur serie pour un futur controle
+radio.
+
+Attention alimentation : le GPIO de l'ESP32 ne doit piloter que le signal data.
+Le 5 V du ruban doit venir de la powerbank, avec masse commune entre ruban et
+ESP32. Le firmware limite volontairement la puissance de facon tres stricte
+pour les premiers tests :
+
+- `COSTUME_POWER_MILLIAMPS = 180`
+- `COSTUME_BRIGHTNESS = 24`
+
 ### Couronnes
 
 Chaque couronne contient :
@@ -73,6 +93,7 @@ Fichiers principaux :
 - `src/node_main.cpp` : reception ESP-NOW, anti-doublon, activation ciblee,
   synchronisation differee et relais non bloquant.
 - `src/remote_main.cpp` : telecommande regie Serial USB vers ESP-NOW.
+- `src/yara_costume_main.cpp` : prototype autonome de tenue lumineuse de Yara.
 - `include/effects.h` / `src/effects.cpp` : moteur FastLED et bibliotheque
   d'effets.
 - `src/mac_addresses.txt` : adresses MAC connues des couronnes et du master.
@@ -117,6 +138,12 @@ mais ne remplace pas une protection electrique materielle.
 ## Logique de show actuelle
 
 Au demarrage, les couronnes restent eteintes.
+
+Pour verifier le branchement, les couronnes affichent maintenant un check de
+mise sous tension :
+
+- LED 0 verte pendant 2 secondes ;
+- puis extinction complete jusqu'a activation.
 
 Le master est prevu pour etre porte par Yara dans un boitier fixe sur son
 sceptre, avec le lecteur RFID et une alimentation autonome. Il n'a donc pas
@@ -168,6 +195,11 @@ Si une couronne activee perd le signal, elle continue a jouer le dernier effet
 connu. Seule la premiere LED passe en rouge fixe tant que le signal n'est pas
 retabli. Une couronne jamais activee reste eteinte, meme sans signal.
 
+Les boitiers `H`, `J`, `N` et `S` sont reserves aux totems. Ils n'ont pas de tag
+NFC ni d'effet propre. Au demarrage, ils affichent un rose-violet fixe. Ils sont
+ensuite traites comme des couronnes deja actives : a chaque activation d'une
+couronne, ils participent aux flashs et se synchronisent sur le nouvel effet.
+
 ## Canal regie Android / C3 remote
 
 Un ESP32-C3 Super Mini peut etre branche en USB-C a un telephone Android avec
@@ -186,7 +218,7 @@ Commandes serie cote telephone :
 
 | Commande | Action |
 | --- | --- |
-| `b` ou `blackout` | blackout general, couronnes eteintes et desactivees |
+| `b` ou `blackout` | toggle blackout general / restauration de l'etat precedent |
 | `r` ou `reset` | reset couronnes, retour eteint |
 | `t` ou `test` | test reseau avec `EFFECT_DEBUG_HOPS` |
 | `f` ou `final` | effet final global `EFFECT_PRISM` |
@@ -196,12 +228,34 @@ Commandes serie cote telephone :
 L'effet final utilise actuellement `EFFECT_PRISM`, volontairement non associe a
 une couronne dans le mapping RFID.
 
+La commande `b` est reversible : un premier envoi coupe l'affichage, un second
+envoi restaure l'etat precedent. Les totems retrouvent aussi leur etat local.
+
 Pour que blackout, reset, test et final aient le comportement complet, flasher
 les trois firmwares compatibles :
 
 - `master_wroom`
 - `remote_c3`
 - `crown_c3`
+
+## Tenue de Yara
+
+Le firmware `yara_costume_c3` joue un effet autonome au demarrage :
+
+- quelques pixels au centre pulsent en rouge comme un battement de coeur ;
+- deux cometes blanc-bleute partent des extremites du ruban ;
+- les cometes rejoignent le centre comme des eclairs ;
+- a chaque impact au centre, la zone rouge grossit legerement ;
+- sur 2 minutes, la zone rouge s'etend progressivement jusqu'a 400 pixels.
+
+La MAC de l'ESP32-C3 est affichee dans le moniteur serie au demarrage :
+
+```text
+MAC: XX:XX:XX:XX:XX:XX
+```
+
+Elle ne sera utile que si on synchronise plus tard la tenue avec le master, les
+couronnes ou la regie.
 
 ## Association tag / couronne / effet
 
@@ -351,6 +405,12 @@ Compiler seulement la remote regie :
 
 ```powershell
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e remote_c3
+```
+
+Compiler seulement la tenue de Yara :
+
+```powershell
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e yara_costume_c3
 ```
 
 ## Prochaines etapes probables

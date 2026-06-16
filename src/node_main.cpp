@@ -13,6 +13,15 @@ bool crownActivated = false;
 
 uint8_t localMac[6] = {};
 
+const uint8_t TOTEM_MACS[][6] = {
+    {0xAC, 0xEB, 0xE6, 0x6E, 0x87, 0x94}, // H
+    {0x08, 0x92, 0x72, 0x25, 0x47, 0x80}, // J
+    {0x08, 0x92, 0x72, 0x25, 0x62, 0x98}, // N
+    {0x3C, 0xDC, 0x75, 0x33, 0x80, 0x08}  // S
+};
+
+const uint8_t TOTEM_COUNT = sizeof(TOTEM_MACS) / sizeof(TOTEM_MACS[0]);
+
 struct PendingRelay {
     struct_message message;
     uint8_t remaining;
@@ -39,6 +48,34 @@ PendingStrobe pendingStrobe = {};
 
 bool isTargetCrown(const struct_message& message) {
     return memcmp(message.targetMac, localMac, sizeof(localMac)) == 0;
+}
+
+bool isTotemNode() {
+    for (uint8_t i = 0; i < TOTEM_COUNT; i++) {
+        if (memcmp(localMac, TOTEM_MACS[i], sizeof(localMac)) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void applyTotemIdle() {
+    struct_message idle = {};
+    idle.protocolVersion = PROTOCOL_VERSION;
+    idle.command = COMMAND_GLOBAL_EFFECT;
+    idle.effectId = EFFECT_SOLID;
+    idle.hopCount = 0;
+    idle.intensity = TOTEM_IDLE_INTENSITY;
+    idle.speed = 0;
+    idle.flags = 0;
+    idle.sessionId = lastSessionId;
+    idle.msgId = lastProcessedId;
+    idle.primaryColor = TOTEM_IDLE_COLOR;
+    idle.secondaryColor = 0x000000;
+
+    effectsSetActive(true);
+    effectsApplyMessage(idle);
 }
 
 void scheduleGroupStrobe() {
@@ -151,16 +188,34 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
             crownActivated = true;
             pendingSync.active = false;
             pendingStrobe.active = false;
+            effectsSetBlackout(false);
             effectsSetActive(true);
             effectsApplyMessage(incoming);
             break;
 
         case COMMAND_BLACKOUT:
-        case COMMAND_RESET_CROWNS:
-            crownActivated = false;
             pendingSync.active = false;
             pendingStrobe.active = false;
-            effectsSetActive(false);
+            effectsSetBlackout(true);
+            break;
+
+        case COMMAND_RESTORE_FROM_BLACKOUT:
+            pendingSync.active = false;
+            pendingStrobe.active = false;
+            effectsSetBlackout(false);
+            break;
+
+        case COMMAND_RESET_CROWNS:
+            pendingSync.active = false;
+            pendingStrobe.active = false;
+            effectsSetBlackout(false);
+            if (isTotemNode()) {
+                crownActivated = true;
+                applyTotemIdle();
+            } else {
+                crownActivated = false;
+                effectsSetActive(false);
+            }
             break;
 
         case COMMAND_HEARTBEAT:
@@ -180,11 +235,20 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
 void setup() {
     Serial.begin(115200);
 
-    effectsInit();
-    effectsSetActive(false);
-
     WiFi.mode(WIFI_STA);
     WiFi.macAddress(localMac);
+
+    effectsInit();
+    if (isTotemNode()) {
+        effectsSetSignalWarningEnabled(false);
+        crownActivated = true;
+        applyTotemIdle();
+    } else {
+        effectsSetSignalWarningEnabled(true);
+        crownActivated = false;
+        effectsStartPowerCheck();
+    }
+
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
     esp_wifi_set_promiscuous(false);

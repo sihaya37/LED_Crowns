@@ -33,6 +33,9 @@ const unsigned long EFFECT_CHANGE_INTERVAL = 10000;
 // Limitation de puissance FastLED
 #define LED_POWER_VOLTAGE 5
 #define LED_POWER_MILLIAMPS 400
+#define POWER_CHECK_DURATION 2000
+#define TOTEM_IDLE_COLOR 0xB020FF
+#define TOTEM_IDLE_INTENSITY 140
 
 // --- PROTOCOLE ---
 #define PROTOCOL_VERSION 2
@@ -50,7 +53,8 @@ enum MessageCommand : uint8_t {
     COMMAND_GLOBAL_EFFECT = 2,
     COMMAND_BLACKOUT = 3,
     COMMAND_RESET_CROWNS = 4,
-    COMMAND_TEST_NETWORK = 5
+    COMMAND_TEST_NETWORK = 5,
+    COMMAND_RESTORE_FROM_BLACKOUT = 6
 };
 
 enum RemoteCommandId : uint8_t {
