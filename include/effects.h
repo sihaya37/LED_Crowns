@@ -7,6 +7,7 @@
 void effectsInit();
 void effectsSetActive(bool active);
 void effectsSetSignalWarningEnabled(bool enabled);
+void effectsNoteSignal();
 void effectsStartPowerCheck();
 void effectsSetBlackout(bool active);
 void effectsStartActivation(const struct_message& message);

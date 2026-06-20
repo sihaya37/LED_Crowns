@@ -259,7 +259,7 @@ void processRfid() {
 
     prepareMessage(*activation, COMMAND_ACTIVATE_CROWN);
     scheduleBroadcast(myData);
-    queueHeartbeatTemplate(myData, activation->name, CROWN_SYNC_DELAY);
+    queueHeartbeatTemplate(myData, activation->name, SHOW_HEARTBEAT_SYNC_DELAY);
     blackoutActive = false;
 
     Serial.printf(
@@ -267,7 +267,7 @@ void processRfid() {
         activation->crownName,
         activation->name,
         activation->effectId,
-        CROWN_SYNC_DELAY);
+        SHOW_HEARTBEAT_SYNC_DELAY);
 }
 
 void processPendingHeartbeat() {
@@ -311,7 +311,7 @@ void activateCrownFromRemote(char crownName) {
 
     prepareMessage(*activation, COMMAND_ACTIVATE_CROWN);
     scheduleBroadcast(myData);
-    queueHeartbeatTemplate(myData, activation->name, CROWN_SYNC_DELAY);
+    queueHeartbeatTemplate(myData, activation->name, SHOW_HEARTBEAT_SYNC_DELAY);
     blackoutActive = false;
 
     Serial.printf("[REMOTE] Activation couronne %s -> %s\n", activation->crownName, activation->name);

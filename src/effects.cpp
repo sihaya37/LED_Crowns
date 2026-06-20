@@ -105,6 +105,11 @@ void effectsSetSignalWarningEnabled(bool enabled) {
     }
 }
 
+void effectsNoteSignal() {
+    lastSignalTime = millis();
+    signalWarning = false;
+}
+
 void effectsStartPowerCheck() {
     crownActive = false;
     signalWarning = false;

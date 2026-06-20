@@ -47,18 +47,17 @@ lumineux se synchronisent pour representer la sororite entre les Queens.
 - Ruban COB LED WS2812B 5 mm, 5 m, 100 LEDs/m, soit 500 LEDs.
 - Firmware dedie `yara_costume_c3`.
 
-Le prototype est autonome pour l'instant et ne recoit pas encore d'ordres
-ESP-NOW. Son adresse MAC n'est donc pas necessaire a ce stade. Le firmware
-l'affiche quand meme au demarrage dans le moniteur serie pour un futur controle
-radio.
+Le prototype ecoute maintenant les activations ESP-NOW envoyees par le master.
+Son adresse MAC est notee dans `src/mac_addresses.txt`, mais le firmware reagit
+pour l'instant aux activations broadcast sans ciblage specifique.
 
 Attention alimentation : le GPIO de l'ESP32 ne doit piloter que le signal data.
 Le 5 V du ruban doit venir de la powerbank, avec masse commune entre ruban et
-ESP32. Le firmware limite volontairement la puissance de facon tres stricte
-pour les premiers tests :
+ESP32. Le firmware limite la puissance pour rester coherent avec la powerbank
+5 V / 3 A :
 
-- `COSTUME_POWER_MILLIAMPS = 180`
-- `COSTUME_BRIGHTNESS = 24`
+- `COSTUME_POWER_MILLIAMPS = 2400`
+- `COSTUME_BRIGHTNESS = 255`
 
 ### Couronnes
 
@@ -78,11 +77,12 @@ Les couronnes sont imprimees en 3D.
 Le systeme est entierement autonome et ne depend pas du Wi-Fi du lieu. La
 communication utilise ESP-NOW en broadcast.
 
-Il y a deux environnements PlatformIO :
+Il y a quatre environnements PlatformIO :
 
 - `crown_c3` : firmware des couronnes ESP32-C3.
 - `master_wroom` : firmware du master ESP32-WROOM-32.
 - `remote_c3` : firmware du C3 branche au telephone Android pour la regie.
+- `yara_costume_c3` : firmware de la tenue lumineuse de Yara.
 
 Fichiers principaux :
 
@@ -154,12 +154,13 @@ Yara couronne les Queens en scannant le tag NFC associe a chaque couronne :
 1. le master reconnait le tag ;
 2. il envoie une commande `COMMAND_ACTIVATE_CROWN` en broadcast, avec l'adresse
    MAC de la couronne cible ;
-3. seule la couronne cible s'active immediatement et joue une sequence de
-   couronnement techno/electro ;
-4. a la fin de cette sequence, la couronne cible joue son effet associe ;
-5. les couronnes deja activees attendent `CROWN_SYNC_DELAY` puis se
+3. la tenue de Yara demarre la decharge lumineuse ;
+4. la couronne cible attend `YARA_TO_CROWN_ACTIVATION_DELAY`, puis joue une
+   sequence de couronnement techno/electro ;
+5. a la fin de cette sequence, la couronne cible joue son effet associe ;
+6. les couronnes deja activees attendent `CROWN_SYNC_DELAY` puis se
    synchronisent sur l'effet de la couronne qui vient d'etre activee ;
-6. les couronnes pas encore activees restent eteintes.
+7. les couronnes pas encore activees restent eteintes.
 
 La synchronisation differee est actuellement construite avec ces timings :
 
@@ -167,7 +168,9 @@ La synchronisation differee est actuellement construite avec ces timings :
 - `ACTIVATION_STROBE_DURATION = 420`
 - `GROUP_SYNC_WAIT_AFTER_ACTIVATION = 2000`
 - `SYNC_STROBE_DURATION = 420`
+- `YARA_TO_CROWN_ACTIVATION_DELAY = 2000`
 - `CROWN_SYNC_DELAY = ACTIVATION_SEQUENCE_DURATION + GROUP_SYNC_WAIT_AFTER_ACTIVATION`
+- `SHOW_HEARTBEAT_SYNC_DELAY = YARA_TO_CROWN_ACTIVATION_DELAY + CROWN_SYNC_DELAY`
 
 Choregraphie actuelle d'un couronnement :
 
@@ -242,11 +245,54 @@ les trois firmwares compatibles :
 
 Le firmware `yara_costume_c3` joue un effet autonome au demarrage :
 
-- quelques pixels au centre pulsent en rouge comme un battement de coeur ;
-- deux cometes blanc-bleute partent des extremites du ruban ;
-- les cometes rejoignent le centre comme des eclairs ;
-- a chaque impact au centre, la zone rouge grossit legerement ;
-- sur 2 minutes, la zone rouge s'etend progressivement jusqu'a 400 pixels.
+- le ruban est traite comme 7 segments cousus sur la tenue ;
+- le reste du ruban reste eteint ;
+- des sections rouges de 10 pixels pulsent comme un coeur sur les segments 1,
+  2, 3 et 7 ;
+- les sections rouges sont en rouge pur, avec un degrade d'intensite tres
+  contraste : de 18 a 1 % hors battement, puis de 100 a 9 % pendant le
+  battement ;
+- des eclairs blanc-bleute aleatoires parcourent les segments ;
+- les eclairs des segments 1, 2, 3 et 7 s'arretent a la limite des zones
+  rouges ;
+- les eclairs des segments 4, 5 et 6 traversent le segment dans une direction
+  aleatoire.
+
+Cartographie provisoire :
+
+| Segment | Longueur | Pixels | Usage actuel |
+| --- | --- | --- | --- |
+| 1 | 74 cm | 74 | omoplate droite -> coude gauche |
+| 2 | 54 cm | 54 | bras gauche -> omoplate droite |
+| 3 | 67 cm | 67 | omoplate droite -> poitrine droite sous le bras gauche |
+| 4 | 28 cm | 28 | poitrine droite -> omoplate droite par l'epaule droite |
+| 5 | 26 cm | 26 | omoplate droite -> poitrine droite par l'epaule droite |
+| 6 | 28 cm | 28 | poitrine droite -> omoplate droite par l'epaule droite |
+| 7 | 60 cm | 60 | poitrine droite -> poignet droit |
+
+Les 337 premiers pixels sont utilises. Les pixels 337 a 499 restent eteints.
+
+Lorsqu'une couronne est activee :
+
+- les eclairs de la tenue stoppent ;
+- pendant 1 seconde, les zones rouges s'etendent jusqu'a remplir leurs
+  segments en rouge a 100 % ;
+- elles s'estompent ensuite en 1 seconde depuis le dos/devant vers les
+  extremites ;
+- les couronnes attendent `YARA_TO_CROWN_ACTIVATION_DELAY` avant de demarrer
+  leur propre sequence, pour laisser la decharge partir de la tenue ;
+- apres ces 2 secondes, la couronne activee et la tenue demarrent leur sparkle
+  de 5 secondes en meme temps ;
+- le sparkle de la tenue ne se deplace plus d'une extremite a l'autre : il
+  monte en intensite sur tous les segments actifs ;
+- les couronnes deja activees et les totems font un premier triple flash en
+  meme temps que la couronne activee ;
+- la tenue attend ensuite la synchronisation de groupe ;
+- au moment des flashs de synchro, elle fait 3 flashs blancs ;
+- elle joue une interpretation de l'effet/couleurs de la couronne pendant 3
+  secondes ;
+- puis cet effet s'estompe sur 0,5 seconde et l'effet initial revient en fade
+  in sur 0,5 seconde.
 
 La MAC de l'ESP32-C3 est affichee dans le moniteur serie au demarrage :
 

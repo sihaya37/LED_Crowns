@@ -39,6 +39,14 @@ struct PendingSync {
 
 PendingSync pendingSync = {};
 
+struct PendingActivation {
+    struct_message message;
+    unsigned long applyAt;
+    bool active;
+};
+
+PendingActivation pendingActivation = {};
+
 struct PendingStrobe {
     unsigned long applyAt;
     bool active;
@@ -79,14 +87,20 @@ void applyTotemIdle() {
 }
 
 void scheduleGroupStrobe() {
-    pendingStrobe.applyAt = millis() + ACTIVATION_SPARKLE_DURATION;
+    pendingStrobe.applyAt = millis() + YARA_TO_CROWN_ACTIVATION_DELAY + ACTIVATION_SPARKLE_DURATION;
     pendingStrobe.active = true;
 }
 
 void scheduleEffectSync(const struct_message& message) {
     pendingSync.message = message;
-    pendingSync.applyAt = millis() + CROWN_SYNC_DELAY;
+    pendingSync.applyAt = millis() + YARA_TO_CROWN_ACTIVATION_DELAY + CROWN_SYNC_DELAY;
     pendingSync.active = true;
+}
+
+void scheduleActivation(const struct_message& message) {
+    pendingActivation.message = message;
+    pendingActivation.applyAt = millis() + YARA_TO_CROWN_ACTIVATION_DELAY;
+    pendingActivation.active = true;
 }
 
 void processGroupStrobe() {
@@ -101,6 +115,23 @@ void processGroupStrobe() {
 
     pendingStrobe.active = false;
     effectsStartGroupStrobe();
+}
+
+void processActivation() {
+    if (!pendingActivation.active) {
+        return;
+    }
+
+    unsigned long now = millis();
+    if ((long)(now - pendingActivation.applyAt) < 0) {
+        return;
+    }
+
+    pendingActivation.active = false;
+    crownActivated = true;
+    effectsSetBlackout(false);
+    effectsSetActive(true);
+    effectsStartActivation(pendingActivation.message);
 }
 
 void processEffectSync() {
@@ -172,11 +203,10 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     switch (incoming.command) {
         case COMMAND_ACTIVATE_CROWN:
             if (isTargetCrown(incoming)) {
-                crownActivated = true;
+                pendingActivation.active = false;
                 pendingSync.active = false;
                 pendingStrobe.active = false;
-                effectsSetActive(true);
-                effectsStartActivation(incoming);
+                scheduleActivation(incoming);
             } else if (crownActivated) {
                 scheduleGroupStrobe();
                 scheduleEffectSync(incoming);
@@ -186,6 +216,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
         case COMMAND_GLOBAL_EFFECT:
         case COMMAND_TEST_NETWORK:
             crownActivated = true;
+            pendingActivation.active = false;
             pendingSync.active = false;
             pendingStrobe.active = false;
             effectsSetBlackout(false);
@@ -194,18 +225,21 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
             break;
 
         case COMMAND_BLACKOUT:
+            pendingActivation.active = false;
             pendingSync.active = false;
             pendingStrobe.active = false;
             effectsSetBlackout(true);
             break;
 
         case COMMAND_RESTORE_FROM_BLACKOUT:
+            pendingActivation.active = false;
             pendingSync.active = false;
             pendingStrobe.active = false;
             effectsSetBlackout(false);
             break;
 
         case COMMAND_RESET_CROWNS:
+            pendingActivation.active = false;
             pendingSync.active = false;
             pendingStrobe.active = false;
             effectsSetBlackout(false);
@@ -221,7 +255,11 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
         case COMMAND_HEARTBEAT:
         default:
             if (crownActivated) {
-                effectsApplyMessage(incoming);
+                if (pendingActivation.active || pendingStrobe.active || pendingSync.active) {
+                    effectsNoteSignal();
+                } else {
+                    effectsApplyMessage(incoming);
+                }
             }
             break;
     }
@@ -278,6 +316,7 @@ void loop() {
     unsigned long now = millis();
 
     processRelayQueue();
+    processActivation();
     processGroupStrobe();
     processEffectSync();
 
