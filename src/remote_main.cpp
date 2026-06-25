@@ -24,7 +24,12 @@ void printHelp() {
     Serial.println("  b / blackout  -> blackout general");
     Serial.println("  r / reset     -> reset couronnes, retour eteint");
     Serial.println("  t / test      -> test reseau / debug hops");
-    Serial.println("  f / final     -> effet final global");
+    Serial.println("  p / party     -> party pulse global");
+    Serial.println("  s / pompon    -> sparkle pompons / paillettes");
+    Serial.println("  w / wave      -> vague scene/public");
+    Serial.println("  v / rave      -> final rave / prism boost");
+    Serial.println("  f / final     -> final rave global");
+    Serial.println("  x / freeze    -> pose finale blanc fixe");
     Serial.println("  cA, cD, cO... -> activation manuelle d'une couronne");
     Serial.println("  h / help      -> aide");
     Serial.println();
@@ -106,8 +111,38 @@ void handleCommand(String command) {
     }
 
     if (command == "f" || command == "final") {
-        Serial.println("Commande: final global");
+        Serial.println("Commande: final rave global");
         scheduleRemoteSend(REMOTE_FINAL);
+        return;
+    }
+
+    if (command == "p" || command == "party") {
+        Serial.println("Commande: party pulse global");
+        scheduleRemoteSend(REMOTE_PARTY);
+        return;
+    }
+
+    if (command == "s" || command == "sparkle" || command == "pompon") {
+        Serial.println("Commande: sparkle pompons / paillettes");
+        scheduleRemoteSend(REMOTE_POMPON);
+        return;
+    }
+
+    if (command == "w" || command == "wave" || command == "public") {
+        Serial.println("Commande: vague scene/public");
+        scheduleRemoteSend(REMOTE_PUBLIC_WAVE);
+        return;
+    }
+
+    if (command == "v" || command == "rave") {
+        Serial.println("Commande: final rave / prism boost");
+        scheduleRemoteSend(REMOTE_RAVE);
+        return;
+    }
+
+    if (command == "x" || command == "freeze") {
+        Serial.println("Commande: pose finale blanc fixe");
+        scheduleRemoteSend(REMOTE_FREEZE);
         return;
     }
 

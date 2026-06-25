@@ -90,7 +90,7 @@ uint32_t lastRemoteSessionId = 0;
 uint32_t lastRemoteMsgId = 0;
 bool hasRemoteSession = false;
 
-const char FINAL_EFFECT_NAME[] = "FINAL prism";
+const char FINAL_EFFECT_NAME[] = "FINAL rave";
 
 void scheduleBroadcast(const struct_message& message) {
     pendingSend.message = message;
@@ -176,6 +176,21 @@ void queueHeartbeatTemplate(const struct_message& message, const char* label, un
     pendingHeartbeat.label = label;
     pendingHeartbeat.activateAt = millis() + delayMs;
     pendingHeartbeat.active = true;
+}
+
+void sendGlobalEffect(
+    uint8_t effectId,
+    const char* label,
+    uint8_t intensity,
+    uint8_t speed,
+    uint32_t primaryColor,
+    uint32_t secondaryColor
+) {
+    prepareGlobalMessage(COMMAND_GLOBAL_EFFECT, effectId, intensity, speed, primaryColor, secondaryColor);
+    scheduleBroadcast(myData);
+    queueHeartbeatTemplate(myData, label, 0);
+    blackoutActive = false;
+    Serial.printf("[REMOTE] Effet global -> %s id=%u\n", label, effectId);
 }
 
 bool uidEquals(const uint8_t* left, uint8_t leftLength, const uint8_t* right, uint8_t rightLength) {
@@ -363,11 +378,27 @@ void processRemoteCommand(const struct_remote_command& command) {
             break;
 
         case REMOTE_FINAL:
-            prepareGlobalMessage(COMMAND_GLOBAL_EFFECT, EFFECT_PRISM, 220, 34, 0xFF2BD6, 0x1C4DFF);
-            scheduleBroadcast(myData);
-            queueHeartbeatTemplate(myData, FINAL_EFFECT_NAME, 0);
-            blackoutActive = false;
-            Serial.println("[REMOTE] Final global -> prism");
+            sendGlobalEffect(EFFECT_FINAL_RAVE, FINAL_EFFECT_NAME, 240, 138, 0xFF2BD6, 0x1C4DFF);
+            break;
+
+        case REMOTE_PARTY:
+            sendGlobalEffect(EFFECT_PARTY_PULSE, "PARTY pulse", 220, 132, 0xFF2BD6, 0x20D8FF);
+            break;
+
+        case REMOTE_POMPON:
+            sendGlobalEffect(EFFECT_POMPON_SPARKLE, "POMPON sparkle", 235, 115, 0xFFE078, 0xFF4FD8);
+            break;
+
+        case REMOTE_PUBLIC_WAVE:
+            sendGlobalEffect(EFFECT_PUBLIC_WAVE, "PUBLIC wave", 230, 72, 0xFF24BE, 0x1EA8FF);
+            break;
+
+        case REMOTE_RAVE:
+            sendGlobalEffect(EFFECT_FINAL_RAVE, "FINAL rave", 245, 150, 0xFF2BD6, 0x1C4DFF);
+            break;
+
+        case REMOTE_FREEZE:
+            sendGlobalEffect(EFFECT_FINAL_FREEZE, "FINAL freeze", 245, 0, 0xFFFFFF, 0xFF23D2);
             break;
 
         case REMOTE_ACTIVATE_CROWN:

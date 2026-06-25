@@ -68,6 +68,23 @@ CRGB scaledSecondary(uint8_t scale = 255) {
     return color;
 }
 
+CRGB partyPaletteColor(uint8_t index, uint8_t brightness) {
+    const CRGB violet = CRGB(118, 20, 255);
+    const CRGB magenta = CRGB(255, 30, 190);
+    const CRGB cyan = CRGB(0, 210, 255);
+
+    CRGB color;
+    if (index < 85) {
+        color = blend(violet, magenta, index * 3);
+    } else if (index < 170) {
+        color = blend(magenta, cyan, (index - 85) * 3);
+    } else {
+        color = blend(cyan, violet, (index - 170) * 3);
+    }
+    color.nscale8_video(brightness);
+    return color;
+}
+
 void effectsShowNoSignal() {
     fill_solid(leds, NUM_LEDS, CRGB::Black);
     leds[0] = CRGB(15, 0, 0);
@@ -624,6 +641,102 @@ void effectsUpdate(unsigned long now) {
             if (random8() < 18) {
                 leds[random8(NUM_LEDS)] += CRGB(80, 80, 80);
             }
+            break;
+        }
+
+        case EFFECT_PARTY_PULSE: {
+            uint8_t bpm = effectBpm(132);
+            uint8_t pulse = beatsin8(bpm, activeIntensity / 3, activeIntensity);
+            uint8_t t = (now - activeEffectStartedAt) / 10;
+            for (uint8_t i = 0; i < NUM_LEDS; i++) {
+                uint8_t texture = inoise8(i * 42, t);
+                uint8_t wave = sin8(i * 18 + t * 2);
+                uint8_t amount = qadd8(texture / 2, wave / 2);
+                leds[i] = partyPaletteColor(amount, pulse);
+            }
+            if (beatsin8(bpm * 2, 0, 255) > 245) {
+                for (uint8_t i = 0; i < NUM_LEDS; i += 4) {
+                    leds[(i + (now / 80)) % NUM_LEDS] += CRGB(90, 90, 90);
+                }
+            }
+            break;
+        }
+
+        case EFFECT_POMPON_SPARKLE: {
+            CRGB base = CRGB(36, 0, 42);
+            base.nscale8_video(activeIntensity / 3);
+            fadeToBlackBy(leds, NUM_LEDS, 42);
+            for (uint8_t i = 0; i < NUM_LEDS; i++) {
+                leds[i] += base;
+            }
+
+            uint8_t sparkleCount = map(effectBpm(115), 0, 255, 2, 8);
+            for (uint8_t i = 0; i < sparkleCount; i++) {
+                if (random8() < 170) {
+                    CRGB spark = random8() < 90 ? CRGB(255, 220, 120) : CRGB(255, 75, 210);
+                    if (random8() < 55) {
+                        spark = CRGB::White;
+                    }
+                    spark.nscale8_video(activeIntensity);
+                    leds[random8(NUM_LEDS)] += spark;
+                }
+            }
+            break;
+        }
+
+        case EFFECT_PUBLIC_WAVE: {
+            fadeToBlackBy(leds, NUM_LEDS, 58);
+            uint16_t elapsed = now - activeEffectStartedAt;
+            uint8_t bpm = effectBpm(72);
+            uint8_t front = (elapsed * bpm / 430) % NUM_LEDS;
+            uint8_t pulse = beatsin8(36, activeIntensity / 2, activeIntensity);
+            CRGB primary = CRGB(255, 36, 190);
+            CRGB secondary = CRGB(30, 170, 255);
+            primary.nscale8_video(pulse);
+            secondary.nscale8_video(activeIntensity);
+
+            for (uint8_t i = 0; i < NUM_LEDS; i++) {
+                uint8_t distance = i > front ? i - front : front - i;
+                distance = min<uint8_t>(distance, NUM_LEDS - distance);
+                if (distance < 7) {
+                    CRGB color = blend(primary, secondary, distance * 32);
+                    color.nscale8_video(255 - distance * 28);
+                    leds[i] += color;
+                }
+            }
+
+            if (random8() < 28) {
+                leds[random8(NUM_LEDS)] += CRGB(120, 120, 120);
+            }
+            break;
+        }
+
+        case EFFECT_FINAL_RAVE: {
+            uint8_t baseHue = ((now - activeEffectStartedAt) * effectBpm(96) / 450) & 0xFF;
+            uint8_t pulse = beatsin8(effectBpm(138), activeIntensity / 2, activeIntensity);
+            for (uint8_t i = 0; i < NUM_LEDS; i++) {
+                uint8_t noise = inoise8(i * 55, (now - activeEffectStartedAt) / 7);
+                leds[i] = CHSV(baseHue + i * 11 + noise / 2, 245, pulse);
+            }
+
+            if (((now - activeEffectStartedAt) % 940) < 65) {
+                fill_solid(leds, NUM_LEDS, CRGB::White);
+            } else if (random8() < 55) {
+                leds[random8(NUM_LEDS)] += CRGB::White;
+            }
+            break;
+        }
+
+        case EFFECT_FINAL_FREEZE: {
+            CRGB white = CRGB::White;
+            white.nscale8_video(activeIntensity);
+            fill_solid(leds, NUM_LEDS, white);
+
+            uint8_t shimmer = beatsin8(18, 0, 70);
+            CRGB edge = CRGB(255, 35, 210);
+            edge.nscale8_video(shimmer);
+            leds[0] += edge;
+            leds[NUM_LEDS / 2] += edge;
             break;
         }
 

@@ -224,22 +224,28 @@ Commandes serie cote telephone :
 | `b` ou `blackout` | toggle blackout general / restauration de l'etat precedent |
 | `r` ou `reset` | reset couronnes, retour eteint |
 | `t` ou `test` | test reseau avec `EFFECT_DEBUG_HOPS` |
-| `f` ou `final` | effet final global `EFFECT_PRISM` |
+| `p` ou `party` | effet global `EFFECT_PARTY_PULSE` |
+| `s`, `sparkle` ou `pompon` | effet global `EFFECT_POMPON_SPARKLE` |
+| `w`, `wave` ou `public` | effet global `EFFECT_PUBLIC_WAVE` |
+| `v` ou `rave` | effet global `EFFECT_FINAL_RAVE` |
+| `f` ou `final` | effet final global `EFFECT_FINAL_RAVE` |
+| `x` ou `freeze` | pose finale blanche `EFFECT_FINAL_FREEZE` |
 | `cA`, `cD`, `cO`, etc. | activation manuelle d'une couronne |
 | `h` ou `help` | aide dans le terminal |
 
-L'effet final utilise actuellement `EFFECT_PRISM`, volontairement non associe a
-une couronne dans le mapping RFID.
+Les effets de partie 9 sont volontairement non associes a une couronne dans le
+mapping RFID. Ils sont prevus pour des etats globaux scene/public.
 
 La commande `b` est reversible : un premier envoi coupe l'affichage, un second
 envoi restaure l'etat precedent. Les totems retrouvent aussi leur etat local.
 
-Pour que blackout, reset, test et final aient le comportement complet, flasher
-les trois firmwares compatibles :
+Pour que blackout, reset, test, final et les effets globaux aient le
+comportement complet, flasher les firmwares compatibles :
 
 - `master_wroom`
 - `remote_c3`
 - `crown_c3`
+- `yara_costume_c3`
 
 ## Tenue de Yara
 
@@ -293,6 +299,10 @@ Lorsqu'une couronne est activee :
   secondes ;
 - puis cet effet s'estompe sur 0,5 seconde et l'effet initial revient en fade
   in sur 0,5 seconde.
+
+La tenue reagit aussi aux commandes globales de regie pour la partie 9. Elle
+joue alors une interpretation dediee de `party`, `pompon`, `wave`, `rave` ou
+`freeze`, jusqu'a reception d'une nouvelle commande.
 
 La MAC de l'ESP32-C3 est affichee dans le moniteur serie au demarrage :
 
@@ -405,6 +415,11 @@ Les effets existants sont :
 - `EFFECT_VOGUE_POSE`
 - `EFFECT_STORM`
 - `EFFECT_QUEEN_AURA`
+- `EFFECT_PARTY_PULSE`
+- `EFFECT_POMPON_SPARKLE`
+- `EFFECT_PUBLIC_WAVE`
+- `EFFECT_FINAL_RAVE`
+- `EFFECT_FINAL_FREEZE`
 
 Le master ne parcourt plus automatiquement une playlist de demo dans le firmware
 principal. Il attend les scans RFID, puis maintient par heartbeat le dernier
